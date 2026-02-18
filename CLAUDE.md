@@ -135,15 +135,21 @@ flushElevenLabs();
 ### TalkingHead Integration
 
 - Import: `import { TalkingHead } from './modules/talkinghead.mjs'`
-- Init with `ttsEndpoint: null` (we handle TTS externally)
+- Constructor: set `ttsEndpoint: null`, `lipsyncLang: 'en'`, `lipsyncModules: ['en']`
+  - **Default `lipsyncLang` is `'fi'` (Finnish)** — always override to `'en'`
 - `cameraView: 'upper'` (head and shoulders)
-- Use `head.speakAudio(audioObj)` where:
+- `speakAudio(r, opt, onsubtitles)` signature — **verified from actual source**:
   ```javascript
-  { audio: audioBuffer, words: [...], wtimes: [...], wdurations: [...] }
+  // r.audio must be ArrayBuffer (raw MP3/WAV bytes), NOT a Web Audio AudioBuffer
+  // TalkingHead decodes audio internally with its own AudioContext
+  head.speakAudio(
+    { audio: ArrayBuffer, words: string[], wtimes: number[], wdurations: number[] },
+    { lipsyncLang: 'en' }
+  );
   ```
-- ElevenLabs returns char-level alignment — aggregate chars into words before passing to `speakAudio`
-- **Refer to TalkingHead README Appendix G** for exact `speakAudio` format
-- Also study `index.html` in the TalkingHead repo — it already has ElevenLabs WebSocket wired up. Reuse that pattern.
+- `speakAudio` is **synchronous** — it queues audio and returns immediately. Multiple calls queue in order.
+- `head.isSpeaking` (boolean) and `head.stopSpeaking()` / `head.pauseSpeaking()` are available
+- ElevenLabs returns char-level alignment — `alignmentToWords()` in `app.js` aggregates to word-level
 
 ### Audio Capture (Frontend)
 

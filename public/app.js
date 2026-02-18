@@ -25,8 +25,7 @@ const statusEl    = document.getElementById('status');
 const micBtn      = document.getElementById('mic-btn');
 
 // ── App state ─────────────────────────────────────────────────────────────────
-let head;                          // TalkingHead instance
-let audioCtx;                      // Web Audio AudioContext
+let head;                          // TalkingHead instance (manages its own AudioContext)
 let conversationHistory = [];      // Claude message history (last 20)
 let isListening = false;
 let mediaStream, mediaRecorder, dgWs;
@@ -36,11 +35,14 @@ let lastInterimTranscript = '';
 async function init() {
   setStatus('Loading avatar…', '');
 
-  // TalkingHead with external TTS (we call speakAudio ourselves)
+  // TalkingHead with external TTS (we call speakAudio ourselves).
+  // lipsyncLang defaults to 'fi' in the library — must override to 'en'.
   head = new TalkingHead(avatarEl, {
     ttsEndpoint: null,
     cameraView: 'upper',
     cameraRotateEnable: true,
+    lipsyncLang: 'en',
+    lipsyncModules: ['en'],
   });
 
   try {
@@ -73,13 +75,6 @@ async function toggleListening() {
 }
 
 async function startListening() {
-  // AudioContext must be created (or resumed) after a user gesture
-  if (!audioCtx) {
-    audioCtx = new AudioContext();
-  } else if (audioCtx.state === 'suspended') {
-    await audioCtx.resume();
-  }
-
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (err) {
@@ -260,21 +255,27 @@ async function speakSentence(text) {
 
     const data = await res.json();
 
-    // data.audio_base64 — base64 encoded MP3 (or PCM) from ElevenLabs
+    // data.audio_base64 — base64 encoded audio (MP3 by default) from ElevenLabs
     // data.normalized_alignment — { chars, charStartTimesMs, charDurationsMs }
     // data.alignment             — { characters, character_start_times_seconds, ... }
-    const audioBuffer = await decodeAudioBase64(data.audio_base64);
-    const alignment   = data.normalized_alignment || data.alignment;
-    const wordTiming  = alignmentToWords(alignment);
 
-    // See TalkingHead README Appendix G for speakAudio() format.
-    // If the avatar doesn't lip-sync, verify the exact field names against the README.
-    head.speakAudio({
-      audio: audioBuffer,
-      words: wordTiming.words,
-      wtimes: wordTiming.wtimes,
-      wdurations: wordTiming.wdurations,
-    });
+    // speakAudio() expects ArrayBuffer (raw bytes), NOT a Web Audio AudioBuffer.
+    // TalkingHead decodes the audio internally using its own AudioContext.
+    const audioArrayBuffer = base64ToArrayBuffer(data.audio_base64);
+    const alignment        = data.normalized_alignment || data.alignment;
+    const wordTiming       = alignmentToWords(alignment);
+
+    // speakAudio(r, opt, onsubtitles) — synchronous, queues audio internally.
+    // Multiple calls queue up and play in order automatically.
+    head.speakAudio(
+      {
+        audio: audioArrayBuffer,
+        words: wordTiming.words,
+        wtimes: wordTiming.wtimes,
+        wdurations: wordTiming.wdurations,
+      },
+      { lipsyncLang: 'en' }
+    );
 
   } catch (err) {
     console.error('[TTS] error:', err);
@@ -285,35 +286,16 @@ async function speakSentence(text) {
 // ── Audio helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Decode base64-encoded audio (MP3 or PCM) into a Web Audio AudioBuffer.
- * AudioContext.decodeAudioData handles MP3/WAV/OGG automatically.
- * Raw PCM (no container) is not supported by decodeAudioData — in that case
- * swap in the pcmToAudioBuffer() helper below.
+ * Decode base64 string → ArrayBuffer.
+ * TalkingHead's speakAudio() expects raw ArrayBuffer (MP3/WAV/OGG bytes).
+ * It decodes audio internally using its own AudioContext.
  */
-async function decodeAudioBase64(base64) {
+function base64ToArrayBuffer(base64) {
   const binary = atob(base64);
   const bytes  = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-  // Defensive copy: decodeAudioData detaches the ArrayBuffer
-  return audioCtx.decodeAudioData(bytes.buffer.slice(0));
+  return bytes.buffer;
 }
-
-/**
- * Use this instead of decodeAudioBase64 if ElevenLabs returns raw PCM
- * (e.g., output_format=pcm_16000 — signed 16-bit little-endian @ 16 kHz).
- */
-// function pcmToAudioBuffer(base64, sampleRate = 16000) {
-//   const binary = atob(base64);
-//   const bytes  = new Uint8Array(binary.length);
-//   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-//   const int16  = new Int16Array(bytes.buffer);
-//   const float32 = new Float32Array(int16.length);
-//   for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
-//   const buf = audioCtx.createBuffer(1, float32.length, sampleRate);
-//   buf.copyToChannel(float32, 0);
-//   return buf;
-// }
 
 /**
  * Convert ElevenLabs character-level alignment to word-level timing
