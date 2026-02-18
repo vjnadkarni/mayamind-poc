@@ -33,6 +33,7 @@ let head;                       // TalkingHead instance
 let sharedAudioCtx;             // AudioContext we own and pass to TalkingHead
 let mediaStream, mediaRecorder, dgWs;
 let isMicMuted  = false;        // gate on ondataavailable — true while processing/speaking
+let keepAliveId = null;         // interval id for Deepgram KeepAlive while muted
 let accFinal    = '';           // accumulated is_final Deepgram segments this utterance
 let conversationHistory = [];   // Claude messages array (capped at 20)
 
@@ -216,11 +217,27 @@ function toggleMute() {
   if (isMicMuted  && state === S.LISTENING) setStatus(S.LISTENING, 'Muted');
 }
 
+// ── Deepgram KeepAlive ─────────────────────────────────────────────────────────
+// Deepgram closes the WS if no audio arrives within its timeout window.
+// While mic is muted (processing/speaking), send KeepAlive to hold the connection.
+function startKeepAlive() {
+  stopKeepAlive();
+  keepAliveId = setInterval(() => {
+    if (dgWs && dgWs.readyState === WebSocket.OPEN) {
+      dgWs.send(JSON.stringify({ type: 'KeepAlive' }));
+    }
+  }, 5000); // every 5s
+}
+function stopKeepAlive() {
+  if (keepAliveId) { clearInterval(keepAliveId); keepAliveId = null; }
+}
+
 // ── Conversation pipeline ─────────────────────────────────────────────────────
 async function runConversation(userText) {
   // Transition → PROCESSING; mute mic immediately to block avatar echo
   state     = S.PROCESSING;
   isMicMuted = true;
+  startKeepAlive();
   setStatus(S.PROCESSING, 'Thinking…');
 
   conversationHistory.push({ role: 'user', content: userText });
@@ -270,9 +287,11 @@ async function runConversation(userText) {
         body: JSON.stringify({ text: sentence }),
       });
       if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
-      const data    = await res.json();
-      const audioBuf = base64ToArrayBuffer(data.audio_base64);
-      const timing   = alignmentToWords(data.normalized_alignment || data.alignment);
+      const data      = await res.json();
+      const arrayBuf  = base64ToArrayBuffer(data.audio_base64);
+      // speakAudio expects a decoded AudioBuffer, not a raw ArrayBuffer
+      const audioBuf  = await sharedAudioCtx.decodeAudioData(arrayBuf);
+      const timing    = alignmentToWords(data.normalized_alignment || data.alignment);
       audioCache[seq] = { audioBuf, timing };
     } catch (err) {
       console.error(`[TTS] seq ${seq} error:`, err);
@@ -357,6 +376,7 @@ async function runConversation(userText) {
 function resumeListening() {
   state      = S.LISTENING;
   isMicMuted = false;
+  stopKeepAlive();
   accFinal   = '';
   setStatus(S.LISTENING, 'Listening…');
 }
