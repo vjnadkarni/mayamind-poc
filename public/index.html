@@ -181,9 +181,228 @@
     .msg.user      { background: #1e1e2e; color: #aaa; align-self: flex-end; }
     .msg.assistant { background: #0d2a45; color: #7db8e8; align-self: flex-start; }
     .msg.interim   { opacity: 0.5; font-style: italic; }
+
+    /* ── Settings button ── */
+    #settings-btn {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 20;
+      background: rgba(30,30,46,0.85);
+      border: 1px solid #333;
+      border-radius: 10px;
+      color: #999;
+      font-size: 20px;
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #settings-btn:hover { border-color: #555; color: #ddd; }
+
+    /* ── Settings panel ── */
+    #settings-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(3px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    #settings-overlay.open { opacity: 1; pointer-events: auto; }
+
+    #settings-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 31;
+      width: 320px;
+      max-width: 90vw;
+      height: 100dvh;
+      background: #13131f;
+      border-right: 1px solid #2a2a3a;
+      overflow-y: auto;
+      padding: 16px;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+    }
+    #settings-overlay.open + #settings-panel,
+    #settings-panel.open { transform: translateX(0); }
+
+    .settings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .settings-header h3 { font-size: 16px; color: #ccc; font-weight: 500; }
+    #settings-close {
+      background: none;
+      border: none;
+      color: #777;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    #settings-close:hover { color: #ddd; }
+
+    .settings-section {
+      margin-bottom: 14px;
+    }
+    .settings-section label {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    /* Button group (pill chips) */
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .btn-group button {
+      background: #1e1e2e;
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      color: #888;
+      font-size: 12px;
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-group button:hover { border-color: #444; color: #bbb; }
+    .btn-group button.active {
+      background: #1a3a5c;
+      border-color: #2a6090;
+      color: #8cc8ff;
+    }
+
+    /* Profile row */
+    .profile-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .profile-row select {
+      flex: 1;
+      background: #1e1e2e;
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      color: #aaa;
+      font-size: 12px;
+      padding: 5px 8px;
+      outline: none;
+    }
+    .profile-row button {
+      background: #1e1e2e;
+      border: 1px solid #2a2a3a;
+      border-radius: 6px;
+      color: #888;
+      font-size: 12px;
+      padding: 5px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .profile-row button:hover { border-color: #444; color: #bbb; }
+    .profile-row button.danger:hover { border-color: #8a1a1a; color: #e57373; }
   </style>
 </head>
 <body>
+
+  <!-- Settings gear button -->
+  <button id="settings-btn" title="Settings">&#9881;</button>
+
+  <!-- Settings overlay + panel -->
+  <div id="settings-overlay"></div>
+  <div id="settings-panel">
+    <div class="settings-header">
+      <h3>Settings</h3>
+      <button id="settings-close">&#10005;</button>
+    </div>
+
+    <!-- Profile -->
+    <div class="settings-section">
+      <label>Profile</label>
+      <div class="profile-row">
+        <select id="profile-select"><option value="">-- No profile --</option></select>
+        <button id="profile-save">Save</button>
+        <button id="profile-delete" class="danger">Del</button>
+      </div>
+    </div>
+
+    <!-- Camera View -->
+    <div class="settings-section">
+      <label>Camera View</label>
+      <div class="btn-group" data-setting="cameraView">
+        <button data-value="head">Head</button>
+        <button data-value="upper">Upper Body</button>
+        <button data-value="mid">Torso Up</button>
+        <button data-value="full">Full Body</button>
+      </div>
+    </div>
+
+    <!-- Background -->
+    <div class="settings-section">
+      <label>Background</label>
+      <div class="btn-group" data-setting="background">
+        <button data-value="default">Default</button>
+        <button data-value="office">Office</button>
+        <button data-value="living">Living Room</button>
+        <button data-value="nature">Nature</button>
+        <button data-value="city">City</button>
+        <button data-value="beach">Beach</button>
+      </div>
+    </div>
+
+    <!-- Mood -->
+    <div class="settings-section">
+      <label>Mood</label>
+      <div class="btn-group" data-setting="mood">
+        <button data-value="neutral">Neutral</button>
+        <button data-value="happy">Happy</button>
+        <button data-value="angry">Angry</button>
+        <button data-value="sad">Sad</button>
+        <button data-value="fear">Fear</button>
+        <button data-value="disgust">Disgust</button>
+        <button data-value="love">Love</button>
+        <button data-value="sleep">Sleep</button>
+        <button data-value="surprised">Surprised</button>
+      </div>
+    </div>
+
+    <!-- Lighting -->
+    <div class="settings-section">
+      <label>Lighting</label>
+      <div class="btn-group" data-setting="lighting">
+        <button data-value="studio">Studio</button>
+        <button data-value="warm">Warm</button>
+        <button data-value="cool">Cool</button>
+        <button data-value="dramatic">Dramatic</button>
+        <button data-value="soft">Soft</button>
+      </div>
+    </div>
+
+    <!-- Voice -->
+    <div class="settings-section">
+      <label>Voice</label>
+      <div class="btn-group" data-setting="voice">
+        <button data-value="21m00Tcm4TlvDq8ikWAM">Rachel &#9792;</button>
+        <button data-value="EXAVITQu4vr4xnSDxMaL">Bella &#9792;</button>
+        <button data-value="AZnzlk1XvdvUeBnXmlld">Domi &#9792;</button>
+        <button data-value="TxGEqnHWrfWFTfGW9XjX">Josh &#9794;</button>
+        <button data-value="VR6AewLTigWG4xSOukaG">Arnold &#9794;</button>
+      </div>
+    </div>
+  </div>
 
   <div id="avatar">
     <div id="loading">Loading avatar…</div>

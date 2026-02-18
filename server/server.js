@@ -86,7 +86,7 @@ app.post('/api/tts', async (req, res) => {
     return res.status(400).json({ error: 'text is required' });
   }
 
-  const voiceId = process.env.ELEVENLABS_VOICE_ID;
+  const voiceId = req.body.voice_id || process.env.ELEVENLABS_VOICE_ID;
   const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`;
 
   try {

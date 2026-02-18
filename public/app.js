@@ -16,6 +16,54 @@ const DG_WS_URL  = `ws://${location.host}/ws/deepgram`;
 const CHAT_URL   = '/api/chat';
 const TTS_URL    = '/api/tts';
 
+// ── Settings presets ──────────────────────────────────────────────────────────
+const BACKGROUNDS = {
+  default:  '#0a0a10',
+  office:   'linear-gradient(160deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%)',
+  living:   'linear-gradient(160deg, #2d1b00 0%, #3d2b1f 50%, #4a3728 100%)',
+  nature:   'linear-gradient(160deg, #0d3b0d 0%, #1a4d2e 50%, #0a3d5c 100%)',
+  city:     'linear-gradient(160deg, #0c0c1a 0%, #1a1a2e 40%, #2d2d44 100%)',
+  beach:    'linear-gradient(160deg, #0c2d48 0%, #1a6b8a 50%, #c4956a 100%)',
+};
+
+const LIGHTING_PRESETS = {
+  studio:   { lightAmbientColor: 0xffffff, lightAmbientIntensity: 2,
+              lightDirectColor: 0x8888aa, lightDirectIntensity: 30,
+              lightSpotIntensity: 0 },
+  warm:     { lightAmbientColor: 0xffd4a0, lightAmbientIntensity: 2.5,
+              lightDirectColor: 0xff9944, lightDirectIntensity: 25,
+              lightSpotIntensity: 0 },
+  cool:     { lightAmbientColor: 0xc0d0ff, lightAmbientIntensity: 2,
+              lightDirectColor: 0x4488cc, lightDirectIntensity: 25,
+              lightSpotIntensity: 0 },
+  dramatic: { lightAmbientColor: 0x222244, lightAmbientIntensity: 0.8,
+              lightDirectColor: 0xffffff, lightDirectIntensity: 40,
+              lightSpotColor: 0x3388ff, lightSpotIntensity: 100,
+              lightSpotDispersion: 0.5 },
+  soft:     { lightAmbientColor: 0xffe8d6, lightAmbientIntensity: 3,
+              lightDirectColor: 0xccbbaa, lightDirectIntensity: 10,
+              lightSpotIntensity: 0 },
+};
+
+const VOICES = {
+  '21m00Tcm4TlvDq8ikWAM': 'Rachel',
+  'EXAVITQu4vr4xnSDxMaL': 'Bella',
+  'AZnzlk1XvdvUeBnXmlld': 'Domi',
+  'TxGEqnHWrfWFTfGW9XjX': 'Josh',
+  'VR6AewLTigWG4xSOukaG': 'Arnold',
+};
+
+const DEFAULT_SETTINGS = {
+  cameraView: 'upper',
+  background: 'default',
+  mood: 'happy',
+  lighting: 'studio',
+  voiceId: '21m00Tcm4TlvDq8ikWAM',
+};
+
+// Current settings (modified live, persisted via profiles)
+const settings = { ...DEFAULT_SETTINGS };
+
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const avatarEl      = document.getElementById('avatar');
 const loadingEl     = document.getElementById('loading');
@@ -36,6 +84,157 @@ let isMicMuted  = false;        // gate on ondataavailable — true while proces
 let keepAliveId = null;         // interval id for Deepgram KeepAlive while muted
 let accFinal    = '';           // accumulated is_final Deepgram segments this utterance
 let conversationHistory = [];   // Claude messages array (capped at 20)
+
+// ── Settings: apply functions ─────────────────────────────────────────────────
+function applyCameraView(v) { settings.cameraView = v; head?.setView(v); }
+function applyBackground(v) { settings.background = v; document.body.style.background = BACKGROUNDS[v] || BACKGROUNDS.default; }
+function applyMood(v)       { settings.mood = v; head?.setMood(v); }
+function applyLighting(v)   { settings.lighting = v; if (head && LIGHTING_PRESETS[v]) head.setLighting(LIGHTING_PRESETS[v]); }
+function applyVoice(v)      { settings.voiceId = v; }
+
+function applyAllSettings(s) {
+  applyCameraView(s.cameraView || DEFAULT_SETTINGS.cameraView);
+  applyBackground(s.background || DEFAULT_SETTINGS.background);
+  applyMood(s.mood || DEFAULT_SETTINGS.mood);
+  applyLighting(s.lighting || DEFAULT_SETTINGS.lighting);
+  applyVoice(s.voiceId || DEFAULT_SETTINGS.voiceId);
+  updateSettingsUI();
+}
+
+// ── Settings: UI wiring ──────────────────────────────────────────────────────
+function initSettingsUI() {
+  const settingsBtn     = document.getElementById('settings-btn');
+  const settingsOverlay = document.getElementById('settings-overlay');
+  const settingsPanel   = document.getElementById('settings-panel');
+  const settingsClose   = document.getElementById('settings-close');
+  const profileSelect   = document.getElementById('profile-select');
+  const profileSave     = document.getElementById('profile-save');
+  const profileDelete   = document.getElementById('profile-delete');
+
+  function openPanel()  { settingsOverlay.classList.add('open'); settingsPanel.classList.add('open'); }
+  function closePanel() { settingsOverlay.classList.remove('open'); settingsPanel.classList.remove('open'); }
+
+  settingsBtn.addEventListener('click', openPanel);
+  settingsOverlay.addEventListener('click', closePanel);
+  settingsClose.addEventListener('click', closePanel);
+
+  // Button groups — each group has data-setting and buttons with data-value
+  const APPLY = { cameraView: applyCameraView, background: applyBackground, mood: applyMood,
+                  lighting: applyLighting, voice: applyVoice };
+  for (const group of document.querySelectorAll('.btn-group[data-setting]')) {
+    const key = group.dataset.setting;
+    group.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-value]');
+      if (!btn) return;
+      group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const val = btn.dataset.value;
+      if (key === 'voice') applyVoice(val);
+      else if (APPLY[key]) APPLY[key](val);
+    });
+  }
+
+  // Profile: load on select change
+  profileSelect.addEventListener('change', () => {
+    const name = profileSelect.value;
+    if (name) loadProfile(name);
+  });
+
+  // Profile: save
+  profileSave.addEventListener('click', () => {
+    let name = profileSelect.value;
+    if (!name) {
+      name = prompt('Profile name:');
+      if (!name || !name.trim()) return;
+      name = name.trim();
+    }
+    saveProfile(name);
+  });
+
+  // Profile: delete
+  profileDelete.addEventListener('click', () => {
+    const name = profileSelect.value;
+    if (!name) return;
+    if (!confirm(`Delete profile "${name}"?`)) return;
+    deleteProfile(name);
+  });
+
+  refreshProfileDropdown();
+}
+
+function updateSettingsUI() {
+  // Sync active buttons with current settings
+  const map = {
+    cameraView: settings.cameraView,
+    background: settings.background,
+    mood: settings.mood,
+    lighting: settings.lighting,
+    voice: settings.voiceId,
+  };
+  for (const [key, val] of Object.entries(map)) {
+    const group = document.querySelector(`.btn-group[data-setting="${key}"]`);
+    if (!group) continue;
+    group.querySelectorAll('button').forEach(b => {
+      b.classList.toggle('active', b.dataset.value === val);
+    });
+  }
+}
+
+// ── Settings: profile persistence (localStorage) ────────────────────────────
+const LS_PROFILES = 'mayamind_profiles';
+const LS_ACTIVE   = 'mayamind_active_profile';
+
+function getProfiles() {
+  try { return JSON.parse(localStorage.getItem(LS_PROFILES) || '[]'); }
+  catch { return []; }
+}
+
+function saveProfile(name) {
+  const profiles = getProfiles();
+  const data = { name, ...settings };
+  const idx = profiles.findIndex(p => p.name === name);
+  if (idx >= 0) profiles[idx] = data;
+  else profiles.push(data);
+  localStorage.setItem(LS_PROFILES, JSON.stringify(profiles));
+  localStorage.setItem(LS_ACTIVE, name);
+  refreshProfileDropdown(name);
+}
+
+function loadProfile(name) {
+  const profile = getProfiles().find(p => p.name === name);
+  if (!profile) return;
+  applyAllSettings(profile);
+  localStorage.setItem(LS_ACTIVE, name);
+  refreshProfileDropdown(name);
+}
+
+function deleteProfile(name) {
+  const profiles = getProfiles().filter(p => p.name !== name);
+  localStorage.setItem(LS_PROFILES, JSON.stringify(profiles));
+  if (localStorage.getItem(LS_ACTIVE) === name) localStorage.removeItem(LS_ACTIVE);
+  refreshProfileDropdown();
+}
+
+function refreshProfileDropdown(selected) {
+  const sel = document.getElementById('profile-select');
+  if (!sel) return;
+  const active = selected || localStorage.getItem(LS_ACTIVE) || '';
+  const profiles = getProfiles();
+  sel.innerHTML = '<option value="">-- No profile --</option>';
+  for (const p of profiles) {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    if (p.name === active) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+function loadLastProfile() {
+  const name = localStorage.getItem(LS_ACTIVE);
+  if (name) loadProfile(name);
+  else applyAllSettings(DEFAULT_SETTINGS);
+}
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function init() {
@@ -64,6 +263,11 @@ async function init() {
       lipsyncLang: 'en',
     });
     loadingEl.classList.add('hidden');
+
+    // Initialize settings UI and load last saved profile
+    initSettingsUI();
+    loadLastProfile();
+
     // Show the start overlay. The user's tap provides the Chrome user gesture
     // required to resume the AudioContext for audio playback.
     startOverlay.classList.remove('hidden');
@@ -284,7 +488,7 @@ async function runConversation(userText) {
       const res = await fetch(TTS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sentence }),
+        body: JSON.stringify({ text: sentence, voice_id: settings.voiceId }),
       });
       if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
       const data      = await res.json();
