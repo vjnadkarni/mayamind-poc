@@ -137,8 +137,8 @@ function handleDeepgram(clientWs) {
     language: 'en',
     smart_format: 'true',
     interim_results: 'true',
-    endpointing: '300',        // detect silence after 300ms (saves ~500ms vs default 800ms)
-    utterance_end_ms: '1000',  // emit UtteranceEnd after 1s of silence
+    endpointing: '500',        // 500ms silence → speech_final:true (primary trigger)
+    utterance_end_ms: '1500',  // fallback UtteranceEnd event if speech_final missed
   });
 
   const dgWs = new WebSocket(

@@ -17,19 +17,14 @@
       overflow: hidden;
     }
 
-    /* ── Avatar canvas (takes most of screen) ── */
+    /* ── Avatar canvas ── */
     #avatar {
       flex: 1;
       width: 100%;
       min-height: 0;
       position: relative;
     }
-
-    /* TalkingHead renders its own canvas into #avatar */
-    #avatar canvas {
-      width: 100% !important;
-      height: 100% !important;
-    }
+    #avatar canvas { width: 100% !important; height: 100% !important; }
 
     /* Loading overlay */
     #loading {
@@ -39,10 +34,10 @@
       align-items: center;
       justify-content: center;
       background: #0a0a10;
-      color: #666;
+      color: #555;
       font-size: 14px;
       z-index: 10;
-      transition: opacity 0.5s;
+      transition: opacity 0.6s;
     }
     #loading.hidden { opacity: 0; pointer-events: none; }
 
@@ -57,17 +52,82 @@
       flex-shrink: 0;
     }
 
-    #status {
+    /* ── Status bar ── */
+    #status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    #status-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+    }
+
+    /* Pulsing state dot */
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #444;
+    }
+
+    .dot.loading    { background: #555; }
+
+    .dot.listening  {
+      background: #4caf50;
+      animation: pulse-green 1.6s ease-in-out infinite;
+    }
+
+    .dot.processing {
+      background: #ff9800;
+      animation: pulse-amber 0.8s ease-in-out infinite;
+    }
+
+    .dot.speaking   {
+      background: #2196f3;
+      animation: pulse-blue 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(76,175,80,0.6); }
+      50%       { box-shadow: 0 0 0 6px rgba(76,175,80,0); }
+    }
+    @keyframes pulse-amber {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255,152,0,0.6); }
+      50%       { box-shadow: 0 0 0 5px rgba(255,152,0,0); }
+    }
+    @keyframes pulse-blue {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(33,150,243,0.6); }
+      50%       { box-shadow: 0 0 0 5px rgba(33,150,243,0); }
+    }
+
+    #status-text {
       font-size: 12px;
-      color: #666;
-      text-align: center;
-      letter-spacing: 0.04em;
+      color: #777;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
     }
-    #status.active  { color: #4caf50; }
-    #status.think   { color: #ff9800; }
-    #status.speak   { color: #2196f3; }
-    #status.error   { color: #f44336; }
+
+    /* Mute button */
+    #mute-btn {
+      background: transparent;
+      border: 1px solid #333;
+      border-radius: 20px;
+      color: #888;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px 10px;
+      transition: border-color 0.2s, color 0.2s;
+      flex-shrink: 0;
+    }
+    #mute-btn:hover:not(:disabled) { border-color: #555; color: #bbb; }
+    #mute-btn.muted  { border-color: #8a1a1a; color: #e57373; }
+    #mute-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
     /* ── Transcript ── */
     #transcript {
@@ -84,45 +144,11 @@
       padding: 5px 10px;
       border-radius: 8px;
       max-width: 85%;
-      line-height: 1.4;
+      line-height: 1.45;
     }
-    .msg.user {
-      background: #1e1e2e;
-      color: #aaa;
-      align-self: flex-end;
-    }
-    .msg.assistant {
-      background: #0d2a45;
-      color: #7db8e8;
-      align-self: flex-start;
-    }
-    .msg.interim {
-      opacity: 0.45;
-      font-style: italic;
-    }
-
-    /* ── Controls ── */
-    #controls {
-      display: flex;
-      justify-content: center;
-      padding-top: 4px;
-    }
-
-    #mic-btn {
-      background: #1a4a8a;
-      color: #fff;
-      border: none;
-      border-radius: 28px;
-      padding: 10px 32px;
-      font-size: 15px;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
-      user-select: none;
-    }
-    #mic-btn:hover:not(:disabled) { background: #2460b0; }
-    #mic-btn:active:not(:disabled) { transform: scale(0.97); }
-    #mic-btn.recording { background: #8a1a1a; }
-    #mic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .msg.user      { background: #1e1e2e; color: #aaa; align-self: flex-end; }
+    .msg.assistant { background: #0d2a45; color: #7db8e8; align-self: flex-start; }
+    .msg.interim   { opacity: 0.5; font-style: italic; }
   </style>
 </head>
 <body>
@@ -132,11 +158,14 @@
   </div>
 
   <div id="hud">
-    <div id="status">Initializing…</div>
-    <div id="transcript"></div>
-    <div id="controls">
-      <button id="mic-btn" disabled>🎤 Speak</button>
+    <div id="status-bar">
+      <div id="status-left">
+        <div id="status-dot" class="dot loading"></div>
+        <span id="status-text">Initializing…</span>
+      </div>
+      <button id="mute-btn" disabled title="Mute mic">🎤</button>
     </div>
+    <div id="transcript"></div>
   </div>
 
   <script type="module" src="./app.js"></script>

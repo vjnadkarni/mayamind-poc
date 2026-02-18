@@ -1,48 +1,49 @@
 /**
- * MayaMind — conversation pipeline
+ * MayaMind — always-on VAD conversation pipeline
  *
- * Flow:  mic → Deepgram STT → Claude (SSE) → sentence buffer
- *        → ElevenLabs TTS with-timestamps → TalkingHead speakAudio
+ * State machine:
+ *   LOADING → LISTENING → PROCESSING → SPEAKING → LISTENING → …
  *
- * See: TalkingHead README Appendix G for speakAudio() input format.
- * Adjust AVATAR_URL to match the actual GLB filename after running setup.sh.
+ * Mic is always open. Audio is muted to Deepgram while processing/speaking
+ * to prevent echo. Conversation resumes automatically after avatar finishes.
  */
 
 import { TalkingHead } from './modules/talkinghead.mjs';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-// Update AVATAR_URL to the actual filename placed in public/avatars/ by setup.sh
-const AVATAR_URL = './avatars/brunette.glb';   // <-- update if filename differs
+const AVATAR_URL = './avatars/brunette.glb';   // update if GLB filename differs
 const DG_WS_URL  = `ws://${location.host}/ws/deepgram`;
 const CHAT_URL   = '/api/chat';
 const TTS_URL    = '/api/tts';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const avatarEl    = document.getElementById('avatar');
-const loadingEl   = document.getElementById('loading');
+const avatarEl     = document.getElementById('avatar');
+const loadingEl    = document.getElementById('loading');
 const transcriptEl = document.getElementById('transcript');
-const statusEl    = document.getElementById('status');
-const micBtn      = document.getElementById('mic-btn');
+const statusTextEl = document.getElementById('status-text');
+const statusDotEl  = document.getElementById('status-dot');
+const muteBtn      = document.getElementById('mute-btn');
 
-// ── App state ─────────────────────────────────────────────────────────────────
-let head;                          // TalkingHead instance (manages its own AudioContext)
-let conversationHistory = [];      // Claude message history (last 20)
-let isListening = false;
+// ── State ─────────────────────────────────────────────────────────────────────
+const S = { LOADING: 'loading', LISTENING: 'listening', PROCESSING: 'processing', SPEAKING: 'speaking' };
+let state = S.LOADING;
+
+let head;                       // TalkingHead instance
 let mediaStream, mediaRecorder, dgWs;
-let lastInterimTranscript = '';
+let isMicMuted  = false;        // gate on ondataavailable — true while processing/speaking
+let accFinal    = '';           // accumulated is_final Deepgram segments this utterance
+let conversationHistory = [];   // Claude messages array (capped at 20)
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function init() {
-  setStatus('Loading avatar…', '');
+  setStatus(S.LOADING, 'Loading avatar…');
 
-  // TalkingHead with external TTS (we call speakAudio ourselves).
-  // lipsyncLang defaults to 'fi' in the library — must override to 'en'.
   head = new TalkingHead(avatarEl, {
-    ttsEndpoint: null,
+    ttsEndpoint: null,          // we drive TTS ourselves via speakAudio()
     cameraView: 'upper',
     cameraRotateEnable: true,
     lipsyncLang: 'en',
-    lipsyncModules: ['en'],
+    lipsyncModules: ['en'],     // only load English lipsync module
   });
 
   try {
@@ -53,141 +54,205 @@ async function init() {
       lipsyncLang: 'en',
     });
     loadingEl.classList.add('hidden');
-    setStatus('Ready — press Speak', '');
-    micBtn.disabled = false;
   } catch (err) {
     console.error('[Avatar] load failed:', err);
-    loadingEl.textContent = `Avatar load failed: ${err.message}. Check console & AVATAR_URL.`;
-    setStatus('Avatar error', 'error');
+    loadingEl.textContent = `Avatar failed to load: ${err.message}. Check AVATAR_URL and console.`;
     return;
   }
 
-  micBtn.addEventListener('click', toggleListening);
-}
-
-// ── Mic / Deepgram ────────────────────────────────────────────────────────────
-async function toggleListening() {
-  if (isListening) {
-    stopListening();
-  } else {
-    await startListening();
-  }
-}
-
-async function startListening() {
+  // Start always-on mic + Deepgram stream
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    await openMic();
   } catch (err) {
-    setStatus('Mic access denied', 'error');
-    console.error('[Mic] getUserMedia error:', err);
+    console.error('[Mic] getUserMedia denied:', err);
+    setStatus(S.LOADING, 'Microphone access denied — please allow mic and reload.');
     return;
   }
 
-  isListening = true;
-  lastInterimTranscript = '';
-  micBtn.textContent = '⏹ Stop';
-  micBtn.classList.add('recording');
-  setStatus('Listening…', 'active');
+  setStatus(S.LISTENING, 'Listening…');
+  state = S.LISTENING;
+
+  muteBtn.removeAttribute('disabled');
+  muteBtn.addEventListener('click', toggleMute);
+}
+
+// ── Mic + Deepgram (persistent, always-on) ────────────────────────────────────
+async function openMic() {
+  // Enable WebRTC echo cancellation to reduce avatar-voice pickup
+  mediaStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
 
   dgWs = new WebSocket(DG_WS_URL);
   dgWs.binaryType = 'arraybuffer';
 
-  dgWs.onopen = () => {
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
+  return new Promise((resolve, reject) => {
+    dgWs.onerror = (e) => reject(new Error('Deepgram WS error'));
 
-    mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+    dgWs.onopen = () => {
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
 
-    mediaRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0 && dgWs.readyState === WebSocket.OPEN) {
-        dgWs.send(e.data);
-      }
+      mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+
+      // Gate: only forward audio when mic is unmuted
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0 && dgWs.readyState === WebSocket.OPEN && !isMicMuted) {
+          dgWs.send(e.data);
+        }
+      };
+
+      mediaRecorder.start(100); // 100ms chunks → low latency to Deepgram
+      resolve();
     };
 
-    mediaRecorder.start(100); // 100ms chunks for low latency
-  };
+    dgWs.onmessage = handleDG;
 
-  dgWs.onmessage = (e) => {
-    let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
-
-    if (msg.type === 'Results') {
-      const alt = msg.channel?.alternatives?.[0];
-      if (!alt?.transcript) return;
-
-      if (msg.is_final) {
-        lastInterimTranscript = alt.transcript;
-        appendTranscript('user', alt.transcript, false);
-      } else {
-        showInterim(alt.transcript);
-      }
-    }
-
-    // UtteranceEnd fires after 1s of silence — trigger the LLM pipeline
-    if (msg.type === 'UtteranceEnd') {
-      const text = lastInterimTranscript.trim();
-      if (text) {
-        stopListening();
-        runConversation(text);
-      }
-    }
-  };
-
-  dgWs.onerror = (err) => console.error('[Deepgram] WS error:', err);
-  dgWs.onclose = () => console.log('[Deepgram] WS closed');
+    dgWs.onclose = (ev) => {
+      console.warn('[Deepgram] connection closed:', ev.code, ev.reason);
+      // For the POC we don't auto-reconnect; reload the page if this happens
+    };
+  });
 }
 
-function stopListening() {
-  isListening = false;
-  micBtn.textContent = '🎤 Speak';
-  micBtn.classList.remove('recording');
+// ── Deepgram message handler ──────────────────────────────────────────────────
+function handleDG(e) {
+  let msg;
+  try { msg = JSON.parse(e.data); } catch { return; }
 
-  if (mediaRecorder?.state !== 'inactive') {
-    try { mediaRecorder.stop(); } catch (_) {}
+  if (msg.type === 'Results') {
+    const alt        = msg.channel?.alternatives?.[0];
+    const transcript = alt?.transcript?.trim() || '';
+
+    // Interim result: show what we're hearing in real time
+    if (!msg.is_final) {
+      if (transcript && state === S.LISTENING) {
+        showInterim((accFinal + ' ' + transcript).trim());
+      }
+      return;
+    }
+
+    // Final segment: accumulate
+    if (transcript) accFinal = (accFinal + ' ' + transcript).trim();
+
+    // speech_final = Deepgram endpointing detected ≥500ms of silence after speech
+    // This is the lowest-latency trigger — fires well before UtteranceEnd (+1s).
+    if (msg.speech_final && state === S.LISTENING && accFinal) {
+      const text = accFinal;
+      accFinal = '';
+      clearInterim();
+      appendTranscript('user', text);
+      runConversation(text);   // async — don't await here
+    }
   }
-  mediaStream?.getTracks().forEach(t => t.stop());
-  if (dgWs?.readyState < WebSocket.CLOSING) {
-    try { dgWs.close(); } catch (_) {}
+
+  // UtteranceEnd is a safety-net fallback (fires after utterance_end_ms silence).
+  // If speech_final already triggered above, accFinal will be empty → no-op.
+  if (msg.type === 'UtteranceEnd' && state === S.LISTENING && accFinal) {
+    const text = accFinal;
+    accFinal = '';
+    clearInterim();
+    appendTranscript('user', text);
+    runConversation(text);
   }
+}
+
+// ── Mute toggle ───────────────────────────────────────────────────────────────
+function toggleMute() {
+  isMicMuted = !isMicMuted;
+  muteBtn.textContent = isMicMuted ? '🔇' : '🎤';
+  muteBtn.title       = isMicMuted ? 'Unmute mic' : 'Mute mic';
+  muteBtn.classList.toggle('muted', isMicMuted);
+  if (!isMicMuted && state === S.LISTENING) setStatus(S.LISTENING, 'Listening…');
+  if (isMicMuted  && state === S.LISTENING) setStatus(S.LISTENING, 'Muted');
 }
 
 // ── Conversation pipeline ─────────────────────────────────────────────────────
 async function runConversation(userText) {
-  micBtn.disabled = true;
-  setStatus('Thinking…', 'think');
+  // Transition → PROCESSING; mute mic immediately to block avatar echo
+  state     = S.PROCESSING;
+  isMicMuted = true;
+  setStatus(S.PROCESSING, 'Thinking…');
 
-  // Add to history; trim to last 20 messages (10 turns)
   conversationHistory.push({ role: 'user', content: userText });
   if (conversationHistory.length > 20) conversationHistory.splice(0, 2);
 
-  let fullResponse = '';
-  let buffer = '';
+  let fullResponse  = '';
+  let buffer        = '';
+  let anySpeech     = false;
 
-  // TTS chain: sentences are processed serially to preserve ordering.
-  // Each .then() call starts TTS for the next sentence only after the
-  // previous TTS request has received its audio from ElevenLabs.
-  // TalkingHead's internal queue handles playback ordering automatically.
-  let ttsChain = Promise.resolve();
+  // ── Concurrent TTS with strictly ordered speakAudio calls ─────────────────
+  // Multiple ElevenLabs requests fire in parallel as sentences arrive from
+  // Claude. speakAudio() is only called in sentence order regardless of which
+  // TTS response comes back first. This cuts latency on multi-sentence replies.
+  let   enqueueSeq    = 0;    // next sequence number to assign
+  let   nextSpeakSeq  = 0;    // next sequence number to pass to speakAudio
+  const audioCache    = {};   // seq → { audioBuf, timing } | null
+  const ttsTasks      = [];   // array of Promises
 
-  function scheduleSpeak(sentence) {
-    ttsChain = ttsChain.then(() => speakSentence(sentence));
+  // Drain audioCache in order, calling speakAudio for each ready entry
+  function flushAudioQueue() {
+    while (Object.prototype.hasOwnProperty.call(audioCache, nextSpeakSeq)) {
+      const entry = audioCache[nextSpeakSeq];
+      delete audioCache[nextSpeakSeq];
+      nextSpeakSeq++;
+
+      if (entry) {  // null = sentence was skipped due to TTS error
+        anySpeech = true;
+        if (state === S.PROCESSING) {
+          state = S.SPEAKING;
+          setStatus(S.SPEAKING, 'Speaking…');
+        }
+        head.speakAudio(
+          { audio: entry.audioBuf, words: entry.timing.words,
+            wtimes: entry.timing.wtimes, wdurations: entry.timing.wdurations },
+          { lipsyncLang: 'en' }
+        );
+      }
+    }
   }
 
+  // Fire TTS for one sentence; place result in audioCache at its seq slot
+  async function fetchTTS(sentence, seq) {
+    try {
+      const res = await fetch(TTS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: sentence }),
+      });
+      if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+      const data    = await res.json();
+      const audioBuf = base64ToArrayBuffer(data.audio_base64);
+      const timing   = alignmentToWords(data.normalized_alignment || data.alignment);
+      audioCache[seq] = { audioBuf, timing };
+    } catch (err) {
+      console.error(`[TTS] seq ${seq} error:`, err);
+      audioCache[seq] = null;  // skip this sentence, unblock queue
+    }
+    flushAudioQueue();
+  }
+
+  // Schedule a sentence for TTS (called as each sentence emerges from Claude)
+  function scheduleTTS(sentence) {
+    if (!sentence.trim()) return;
+    const seq = enqueueSeq++;
+    ttsTasks.push(fetchTTS(sentence, seq));
+  }
+
+  // ── Stream Claude response ────────────────────────────────────────────────
   try {
     const res = await fetch(CHAT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: conversationHistory }),
     });
+    if (!res.ok) throw new Error(`Chat HTTP ${res.status}`);
 
-    if (!res.ok) throw new Error(`Chat request failed: ${res.status}`);
-
-    const reader = res.body.getReader();
+    const reader  = res.body.getReader();
     const decoder = new TextDecoder();
 
-    // Read SSE stream
-    while (true) {
+    outer: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -195,101 +260,72 @@ async function runConversation(userText) {
       for (const line of chunk.split('\n')) {
         if (!line.startsWith('data: ')) continue;
         const payload = line.slice(6).trim();
-        if (payload === '[DONE]') break;
+        if (payload === '[DONE]') break outer;
 
         let parsed;
         try { parsed = JSON.parse(payload); } catch { continue; }
-
         if (parsed.error) throw new Error(parsed.error);
-        if (!parsed.text) continue;
+        if (!parsed.text)  continue;
 
-        buffer += parsed.text;
+        buffer       += parsed.text;
         fullResponse += parsed.text;
 
-        // Flush complete sentences immediately to ElevenLabs
-        const match = buffer.match(/[.!?]\s/);
-        if (match) {
-          const sentence = buffer.substring(0, match.index + 1).trim();
-          buffer = buffer.substring(match.index + 2);
-          if (sentence) scheduleSpeak(sentence);
+        // Flush complete sentence to TTS as soon as it's ready
+        const m = buffer.match(/[.!?]\s/);
+        if (m) {
+          scheduleTTS(buffer.substring(0, m.index + 1).trim());
+          buffer = buffer.substring(m.index + 2);
         }
       }
     }
 
-    // Flush any remaining text
-    if (buffer.trim()) scheduleSpeak(buffer.trim());
+    // Flush any trailing text (response that didn't end with punctuation)
+    if (buffer.trim()) scheduleTTS(buffer.trim());
 
-    // Wait for all TTS fetch calls to complete (not for playback to finish)
-    await ttsChain;
+    // Wait for all concurrent TTS fetches to finish
+    await Promise.all(ttsTasks);
 
     conversationHistory.push({ role: 'assistant', content: fullResponse });
     if (conversationHistory.length > 20) conversationHistory.splice(0, 2);
 
-    appendTranscript('assistant', fullResponse, false);
+    appendTranscript('assistant', fullResponse);
 
   } catch (err) {
     console.error('[Chat] error:', err);
-    setStatus('Error — try again', 'error');
-  } finally {
-    micBtn.disabled = false;
-    setStatus('Ready — press Speak', '');
+    resumeListening();
+    return;
   }
+
+  // ── Wait for avatar to finish speaking, then resume listening ─────────────
+  if (anySpeech) {
+    // Brief delay so TalkingHead can start playing before we poll isSpeaking
+    await sleep(400);
+    await waitUntilDoneSpeaking();
+  }
+
+  resumeListening();
 }
 
-// ── TTS + lip-sync ────────────────────────────────────────────────────────────
-async function speakSentence(text) {
-  if (!text.trim()) return;
-  setStatus('Speaking…', 'speak');
+function resumeListening() {
+  state      = S.LISTENING;
+  isMicMuted = false;
+  accFinal   = '';
+  setStatus(S.LISTENING, 'Listening…');
+}
 
-  try {
-    const res = await fetch(TTS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      throw new Error(`TTS ${res.status}: ${errBody}`);
-    }
-
-    const data = await res.json();
-
-    // data.audio_base64 — base64 encoded audio (MP3 by default) from ElevenLabs
-    // data.normalized_alignment — { chars, charStartTimesMs, charDurationsMs }
-    // data.alignment             — { characters, character_start_times_seconds, ... }
-
-    // speakAudio() expects ArrayBuffer (raw bytes), NOT a Web Audio AudioBuffer.
-    // TalkingHead decodes the audio internally using its own AudioContext.
-    const audioArrayBuffer = base64ToArrayBuffer(data.audio_base64);
-    const alignment        = data.normalized_alignment || data.alignment;
-    const wordTiming       = alignmentToWords(alignment);
-
-    // speakAudio(r, opt, onsubtitles) — synchronous, queues audio internally.
-    // Multiple calls queue up and play in order automatically.
-    head.speakAudio(
-      {
-        audio: audioArrayBuffer,
-        words: wordTiming.words,
-        wtimes: wordTiming.wtimes,
-        wdurations: wordTiming.wdurations,
-      },
-      { lipsyncLang: 'en' }
-    );
-
-  } catch (err) {
-    console.error('[TTS] error:', err);
-    // Don't throw — partial failures shouldn't abort the whole response
-  }
+// Poll head.isSpeaking until the avatar finishes its queue
+function waitUntilDoneSpeaking() {
+  if (!head.isSpeaking) return Promise.resolve();
+  return new Promise(resolve => {
+    const id = setInterval(() => {
+      if (!head.isSpeaking) { clearInterval(id); resolve(); }
+    }, 250);
+  });
 }
 
 // ── Audio helpers ─────────────────────────────────────────────────────────────
 
-/**
- * Decode base64 string → ArrayBuffer.
- * TalkingHead's speakAudio() expects raw ArrayBuffer (MP3/WAV/OGG bytes).
- * It decodes audio internally using its own AudioContext.
- */
+// base64 → ArrayBuffer (what speakAudio expects — TalkingHead decodes internally)
 function base64ToArrayBuffer(base64) {
   const binary = atob(base64);
   const bytes  = new Uint8Array(binary.length);
@@ -297,59 +333,49 @@ function base64ToArrayBuffer(base64) {
   return bytes.buffer;
 }
 
-/**
- * Convert ElevenLabs character-level alignment to word-level timing
- * expected by TalkingHead's speakAudio().
- *
- * Handles both ElevenLabs alignment formats:
- *   normalized_alignment: { chars[], charStartTimesMs[], charDurationsMs[] }
- *   alignment:            { characters[], character_start_times_seconds[], character_end_times_seconds[] }
- */
+// ElevenLabs char-level alignment → word-level timing for speakAudio()
 function alignmentToWords(alignment) {
   let chars, startMs, durationMs;
 
-  if (alignment.chars) {
-    // normalized_alignment (milliseconds already)
+  if (alignment?.chars) {
+    // normalized_alignment: already in milliseconds
     chars      = alignment.chars;
     startMs    = alignment.charStartTimesMs;
     durationMs = alignment.charDurationsMs;
-  } else if (alignment.characters) {
-    // raw alignment (seconds — convert to ms)
+  } else if (alignment?.characters) {
+    // raw alignment: seconds → ms
     chars      = alignment.characters;
-    const startSecs = alignment.character_start_times_seconds;
-    const endSecs   = alignment.character_end_times_seconds;
-    startMs    = startSecs.map(s => s * 1000);
-    durationMs = startSecs.map((s, i) => (endSecs[i] - s) * 1000);
+    const s0   = alignment.character_start_times_seconds;
+    const s1   = alignment.character_end_times_seconds;
+    startMs    = s0.map(t => t * 1000);
+    durationMs = s0.map((t, i) => (s1[i] - t) * 1000);
   } else {
-    console.warn('[TTS] Unrecognised alignment format:', alignment);
+    console.warn('[TTS] unknown alignment format:', alignment);
     return { words: [], wtimes: [], wdurations: [] };
   }
 
   const words = [], wtimes = [], wdurations = [];
-  let wordChars = [], wordStart = null, wordLastEnd = null;
+  let wch = [], wStart = null, wEnd = null;
 
   for (let i = 0; i < chars.length; i++) {
     const ch = chars[i];
-
     if (ch === ' ' || ch === '\n' || ch === '\t') {
-      if (wordChars.length > 0) {
-        words.push(wordChars.join(''));
-        wtimes.push(wordStart);
-        wdurations.push(wordLastEnd - wordStart);
-        wordChars = []; wordStart = null; wordLastEnd = null;
+      if (wch.length) {
+        words.push(wch.join(''));
+        wtimes.push(wStart);
+        wdurations.push(wEnd - wStart);
+        wch = []; wStart = null; wEnd = null;
       }
     } else {
-      if (wordStart === null) wordStart = startMs[i];
-      wordLastEnd = startMs[i] + durationMs[i];
-      wordChars.push(ch);
+      if (wStart === null) wStart = startMs[i];
+      wEnd = startMs[i] + durationMs[i];
+      wch.push(ch);
     }
   }
-
-  // Final word (no trailing space)
-  if (wordChars.length > 0) {
-    words.push(wordChars.join(''));
-    wtimes.push(wordStart);
-    wdurations.push(wordLastEnd - wordStart);
+  if (wch.length) {
+    words.push(wch.join(''));
+    wtimes.push(wStart);
+    wdurations.push(wEnd - wStart);
   }
 
   return { words, wtimes, wdurations };
@@ -367,27 +393,27 @@ function showInterim(text) {
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
 
-function appendTranscript(role, text, isInterim) {
-  // Remove any existing interim bubble
+function clearInterim() {
   transcriptEl.querySelector('.interim')?.remove();
+}
 
+function appendTranscript(role, text) {
+  clearInterim();
   const el = document.createElement('div');
-  el.className = `msg ${role}${isInterim ? ' interim' : ''}`;
+  el.className = `msg ${role}`;
   el.textContent = text;
   transcriptEl.appendChild(el);
-
-  // Keep transcript from growing unbounded
-  while (transcriptEl.childElementCount > 30) {
-    transcriptEl.removeChild(transcriptEl.firstElementChild);
-  }
-
+  while (transcriptEl.childElementCount > 30) transcriptEl.removeChild(transcriptEl.firstElementChild);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
 
-function setStatus(text, cls) {
-  statusEl.textContent = text;
-  statusEl.className = cls || '';
+// ── Status display ────────────────────────────────────────────────────────────
+function setStatus(stateVal, text) {
+  statusTextEl.textContent = text;
+  statusDotEl.className    = `dot ${stateVal}`;
 }
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', init);
