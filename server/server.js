@@ -147,29 +147,48 @@ function handleDeepgram(clientWs) {
   );
 
   dgWs.on('open', () => {
-    console.log('[Deepgram] connected');
+    console.log('[Deepgram] upstream connected');
+    let audioChunks = 0;
     // Forward browser audio → Deepgram
     clientWs.on('message', (data) => {
-      if (dgWs.readyState === WebSocket.OPEN) dgWs.send(data);
+      if (dgWs.readyState === WebSocket.OPEN) {
+        dgWs.send(data);
+        audioChunks++;
+        if (audioChunks <= 5 || audioChunks % 100 === 0) {
+          console.log(`[Deepgram] forwarded audio chunk #${audioChunks}`);
+        }
+      }
     });
   });
 
   // Forward Deepgram transcriptions → browser
+  let msgCount = 0;
   dgWs.on('message', (data) => {
+    msgCount++;
+    try {
+      const parsed = JSON.parse(data.toString());
+      if (parsed.type !== 'Results') {
+        console.log(`[Deepgram] msg #${msgCount} type=${parsed.type}`);
+      } else if (parsed.channel?.alternatives?.[0]?.transcript?.trim()) {
+        console.log(`[Deepgram] transcript: "${parsed.channel.alternatives[0].transcript.trim()}" final=${parsed.is_final} speech_final=${parsed.speech_final}`);
+      }
+    } catch { /* binary or non-JSON — ignore */ }
     if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data);
   });
 
   dgWs.on('close', (code, reason) => {
-    console.log('[Deepgram] closed:', code, reason.toString());
-    if (clientWs.readyState < WebSocket.CLOSING) clientWs.close();
+    const reasonStr = reason?.toString() || '(none)';
+    console.log(`[Deepgram] upstream closed — code: ${code} | reason: ${reasonStr}`);
+    if (clientWs.readyState < WebSocket.CLOSING) clientWs.close(1000, reasonStr);
   });
 
   dgWs.on('error', (err) => {
-    console.error('[Deepgram] WS error:', err.message);
+    console.error('[Deepgram] upstream WS error:', err.message);
     if (clientWs.readyState < WebSocket.CLOSING) clientWs.close();
   });
 
-  clientWs.on('close', () => {
+  clientWs.on('close', (code, reason) => {
+    console.log(`[Client] WS closed — code: ${code} | reason: ${reason?.toString() || '(none)'}`);
     if (dgWs.readyState < WebSocket.CLOSING) dgWs.close();
   });
 

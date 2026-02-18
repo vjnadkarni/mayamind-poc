@@ -30,6 +30,7 @@ const S = { LOADING: 'loading', LISTENING: 'listening', PROCESSING: 'processing'
 let state = S.LOADING;
 
 let head;                       // TalkingHead instance
+let sharedAudioCtx;             // AudioContext we own and pass to TalkingHead
 let mediaStream, mediaRecorder, dgWs;
 let isMicMuted  = false;        // gate on ondataavailable — true while processing/speaking
 let accFinal    = '';           // accumulated is_final Deepgram segments this utterance
@@ -39,8 +40,15 @@ let conversationHistory = [];   // Claude messages array (capped at 20)
 async function init() {
   setStatus(S.LOADING, 'Loading avatar…');
 
+  // Create the AudioContext ourselves so we can resume() it after the user gesture.
+  // Chrome starts it in "suspended" state; we resume inside the tap handler below.
+  // Passing it to TalkingHead prevents it from creating a second, unresumable context.
+  sharedAudioCtx = new AudioContext();
+  console.log('[AudioCtx] created, state:', sharedAudioCtx.state);
+
   head = new TalkingHead(avatarEl, {
     ttsEndpoint: null,          // we drive TTS ourselves via speakAudio()
+    audioCtx: sharedAudioCtx,   // share our context so we control resume()
     cameraView: 'upper',
     cameraRotateEnable: true,
     lipsyncLang: 'en',
@@ -55,8 +63,8 @@ async function init() {
       lipsyncLang: 'en',
     });
     loadingEl.classList.add('hidden');
-    // Show the start overlay. The user's tap is the user gesture Chrome needs
-    // before AudioContext (used internally by TalkingHead) is allowed to play audio.
+    // Show the start overlay. The user's tap provides the Chrome user gesture
+    // required to resume the AudioContext for audio playback.
     startOverlay.classList.remove('hidden');
     setStatus(S.LOADING, 'Tap anywhere to start');
   } catch (err) {
@@ -65,11 +73,22 @@ async function init() {
     return;
   }
 
-  // Wait for the user's tap — this is the required user gesture for AudioContext
-  await new Promise(resolve => startOverlay.addEventListener('click', resolve, { once: true }));
+  // Wait for the user's tap, then resume AudioContext inside the gesture handler.
+  await new Promise(resolve => {
+    startOverlay.addEventListener('click', () => {
+      // resume() must be called synchronously within the user-gesture handler
+      sharedAudioCtx.resume().then(() => {
+        console.log('[AudioCtx] resumed, state:', sharedAudioCtx.state);
+        resolve();
+      }).catch(err => {
+        console.error('[AudioCtx] resume failed:', err);
+        resolve(); // continue anyway
+      });
+    }, { once: true });
+  });
   startOverlay.classList.add('hidden');
 
-  // Now open mic + Deepgram (audio playback will work because we have a user gesture)
+  // Now open mic + Deepgram (AudioContext is running, playback will work)
   try {
     await openMic();
   } catch (err) {
@@ -96,30 +115,41 @@ async function openMic() {
   dgWs.binaryType = 'arraybuffer';
 
   return new Promise((resolve, reject) => {
-    dgWs.onerror = (e) => reject(new Error('Deepgram WS error'));
+    dgWs.onerror = (e) => {
+      console.error('[Deepgram] WS error event:', e);
+      reject(new Error('Deepgram WS error'));
+    };
 
     dgWs.onopen = () => {
+      console.log('[Deepgram] browser WS open');
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
+      console.log('[Deepgram] MediaRecorder mimeType:', mimeType);
 
       mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
 
+      let chunkCount = 0;
       // Gate: only forward audio when mic is unmuted
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0 && dgWs.readyState === WebSocket.OPEN && !isMicMuted) {
           dgWs.send(e.data);
+          chunkCount++;
+          if (chunkCount <= 5 || chunkCount % 50 === 0) {
+            console.log(`[Deepgram] sent chunk #${chunkCount}, size=${e.data.size}`);
+          }
         }
       };
 
       mediaRecorder.start(100); // 100ms chunks → low latency to Deepgram
+      console.log('[Deepgram] MediaRecorder started');
       resolve();
     };
 
     dgWs.onmessage = handleDG;
 
     dgWs.onclose = (ev) => {
-      console.warn('[Deepgram] connection closed:', ev.code, ev.reason);
+      console.warn('[Deepgram] connection closed — code:', ev.code, '| reason:', ev.reason || '(none)');
       // For the POC we don't auto-reconnect; reload the page if this happens
     };
   });
@@ -130,9 +160,18 @@ function handleDG(e) {
   let msg;
   try { msg = JSON.parse(e.data); } catch { return; }
 
+  // Log non-Results messages (Metadata, SpeechStarted, UtteranceEnd, etc.)
+  if (msg.type !== 'Results') {
+    console.log('[Deepgram] msg type:', msg.type, msg);
+  }
+
   if (msg.type === 'Results') {
     const alt        = msg.channel?.alternatives?.[0];
     const transcript = alt?.transcript?.trim() || '';
+
+    if (transcript) {
+      console.log(`[Deepgram] ${msg.is_final ? 'FINAL' : 'interim'} | speech_final=${msg.speech_final} | "${transcript}"`);
+    }
 
     // Interim result: show what we're hearing in real time
     if (!msg.is_final) {
