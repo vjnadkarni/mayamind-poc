@@ -168,21 +168,39 @@ function handleDeepgram(clientWs) {
 
   let dgConnected = false;
   let audioChunks = 0;
+  const pendingChunks = [];  // buffer audio arriving before Deepgram WS opens
 
-  // Register the audio forwarder immediately (buffer messages until DG opens)
+  // Forward audio to Deepgram, buffering if not yet connected
   clientWs.on('message', (data) => {
     if (dgWs.readyState === WebSocket.OPEN) {
+      // Flush any buffered chunks first (preserves order)
+      while (pendingChunks.length > 0) {
+        const buffered = pendingChunks.shift();
+        dgWs.send(buffered);
+        audioChunks++;
+        console.log(`[Deepgram] flushed buffered chunk #${audioChunks}, size=${buffered.length || buffered.byteLength}`);
+      }
       dgWs.send(data);
       audioChunks++;
-      if (audioChunks <= 5 || audioChunks % 100 === 0) {
+      if (audioChunks <= 10 || audioChunks % 100 === 0) {
         console.log(`[Deepgram] forwarded audio chunk #${audioChunks}, size=${data.length || data.byteLength}`);
       }
+    } else if (dgWs.readyState === WebSocket.CONNECTING) {
+      pendingChunks.push(data);
+      console.log(`[Deepgram] buffered chunk while connecting (${pendingChunks.length}), size=${data.length || data.byteLength}`);
     }
   });
 
   dgWs.on('open', () => {
     dgConnected = true;
     console.log('[Deepgram] upstream connected ✓');
+    // Flush any chunks that arrived during the handshake
+    while (pendingChunks.length > 0) {
+      const buffered = pendingChunks.shift();
+      dgWs.send(buffered);
+      audioChunks++;
+      console.log(`[Deepgram] flushed buffered chunk #${audioChunks}, size=${buffered.length || buffered.byteLength}`);
+    }
   });
 
   // Catch HTTP-level errors during WS handshake (e.g. 401, 402, 403)
