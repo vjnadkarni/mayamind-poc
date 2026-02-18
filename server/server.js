@@ -170,8 +170,11 @@ function handleDeepgram(clientWs) {
   let audioChunks = 0;
   const pendingChunks = [];  // buffer audio arriving before Deepgram WS opens
 
-  // Forward audio to Deepgram, buffering if not yet connected
-  clientWs.on('message', (data) => {
+  // Forward browser messages to Deepgram, preserving frame type.
+  // Audio arrives as binary; KeepAlive arrives as text JSON.
+  // ws v8+ passes (data, isBinary) — we must use { binary: isBinary }
+  // so Deepgram receives text frames as text (required for KeepAlive).
+  clientWs.on('message', (data, isBinary) => {
     if (dgWs.readyState === WebSocket.OPEN) {
       // Flush any buffered chunks first (preserves order)
       while (pendingChunks.length > 0) {
@@ -180,10 +183,14 @@ function handleDeepgram(clientWs) {
         audioChunks++;
         console.log(`[Deepgram] flushed buffered chunk #${audioChunks}, size=${buffered.length || buffered.byteLength}`);
       }
-      dgWs.send(data);
-      audioChunks++;
-      if (audioChunks <= 10 || audioChunks % 100 === 0) {
-        console.log(`[Deepgram] forwarded audio chunk #${audioChunks}, size=${data.length || data.byteLength}`);
+      dgWs.send(data, { binary: isBinary });
+      if (isBinary) {
+        audioChunks++;
+        if (audioChunks <= 10 || audioChunks % 100 === 0) {
+          console.log(`[Deepgram] forwarded audio chunk #${audioChunks}, size=${data.length || data.byteLength}`);
+        }
+      } else {
+        console.log(`[Deepgram] forwarded text msg: ${data.toString().substring(0, 80)}`);
       }
     } else if (dgWs.readyState === WebSocket.CONNECTING) {
       pendingChunks.push(data);
