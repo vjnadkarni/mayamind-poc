@@ -216,8 +216,10 @@ function handleDeepgram(clientWs) {
   });
 
   // Forward Deepgram transcriptions → browser
+  // ws v8+ passes (data, isBinary). Deepgram sends text frames; we must
+  // forward them as text so the browser receives a string, not a Blob.
   let msgCount = 0;
-  dgWs.on('message', (data) => {
+  dgWs.on('message', (data, isBinary) => {
     msgCount++;
     try {
       const parsed = JSON.parse(data.toString());
@@ -227,7 +229,9 @@ function handleDeepgram(clientWs) {
         console.log(`[Deepgram] transcript: "${parsed.channel.alternatives[0].transcript.trim()}" final=${parsed.is_final} speech_final=${parsed.speech_final}`);
       }
     } catch { /* binary or non-JSON — ignore */ }
-    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data);
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(data, { binary: isBinary });
+    }
   });
 
   dgWs.on('close', (code, reason) => {
