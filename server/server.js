@@ -130,10 +130,28 @@ server.on('upgrade', (req, socket, head) => {
   }
 });
 
+// ── Verify Deepgram API key at startup ───────────────────────────────────────
+async function verifyDeepgramKey() {
+  try {
+    const res = await fetch('https://api.deepgram.com/v1/projects', {
+      headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` },
+    });
+    if (res.ok) {
+      const body = await res.json();
+      console.log(`  Deepgram: API key valid ✓ (${body.projects?.length || 0} project(s))`);
+    } else {
+      const errText = await res.text();
+      console.error(`  Deepgram: API key INVALID — HTTP ${res.status}: ${errText}`);
+    }
+  } catch (err) {
+    console.error(`  Deepgram: connectivity check failed — ${err.message}`);
+  }
+}
+
 // ── WS /ws/deepgram — Deepgram streaming STT proxy ───────────────────────────
 function handleDeepgram(clientWs) {
   const params = new URLSearchParams({
-    model: 'nova-3',
+    model: 'nova-2',           // nova-2 is most broadly available
     language: 'en',
     smart_format: 'true',
     interim_results: 'true',
@@ -141,22 +159,40 @@ function handleDeepgram(clientWs) {
     utterance_end_ms: '1500',  // fallback UtteranceEnd event if speech_final missed
   });
 
-  const dgWs = new WebSocket(
-    `wss://api.deepgram.com/v1/listen?${params}`,
-    { headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` } }
-  );
+  const dgUrl = `wss://api.deepgram.com/v1/listen?${params}`;
+  console.log('[Deepgram] connecting to:', dgUrl.replace(/api\.deepgram\.com/, 'api.deepgram.com'));
+
+  const dgWs = new WebSocket(dgUrl, {
+    headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` },
+  });
+
+  let dgConnected = false;
+  let audioChunks = 0;
+
+  // Register the audio forwarder immediately (buffer messages until DG opens)
+  clientWs.on('message', (data) => {
+    if (dgWs.readyState === WebSocket.OPEN) {
+      dgWs.send(data);
+      audioChunks++;
+      if (audioChunks <= 5 || audioChunks % 100 === 0) {
+        console.log(`[Deepgram] forwarded audio chunk #${audioChunks}, size=${data.length || data.byteLength}`);
+      }
+    }
+  });
 
   dgWs.on('open', () => {
-    console.log('[Deepgram] upstream connected');
-    let audioChunks = 0;
-    // Forward browser audio → Deepgram
-    clientWs.on('message', (data) => {
-      if (dgWs.readyState === WebSocket.OPEN) {
-        dgWs.send(data);
-        audioChunks++;
-        if (audioChunks <= 5 || audioChunks % 100 === 0) {
-          console.log(`[Deepgram] forwarded audio chunk #${audioChunks}`);
-        }
+    dgConnected = true;
+    console.log('[Deepgram] upstream connected ✓');
+  });
+
+  // Catch HTTP-level errors during WS handshake (e.g. 401, 402, 403)
+  dgWs.on('unexpected-response', (req, res) => {
+    let body = '';
+    res.on('data', (chunk) => { body += chunk; });
+    res.on('end', () => {
+      console.error(`[Deepgram] handshake rejected — HTTP ${res.statusCode}: ${body}`);
+      if (clientWs.readyState < WebSocket.CLOSING) {
+        clientWs.close(4000, `Deepgram HTTP ${res.statusCode}`);
       }
     });
   });
@@ -178,8 +214,10 @@ function handleDeepgram(clientWs) {
 
   dgWs.on('close', (code, reason) => {
     const reasonStr = reason?.toString() || '(none)';
-    console.log(`[Deepgram] upstream closed — code: ${code} | reason: ${reasonStr}`);
-    if (clientWs.readyState < WebSocket.CLOSING) clientWs.close(1000, reasonStr);
+    console.log(`[Deepgram] upstream closed — code: ${code} | reason: ${reasonStr} | wasConnected: ${dgConnected} | audioChunks: ${audioChunks} | msgsReceived: ${msgCount}`);
+    if (clientWs.readyState < WebSocket.CLOSING) {
+      clientWs.close(code || 1000, reasonStr);
+    }
   });
 
   dgWs.on('error', (err) => {
@@ -197,8 +235,9 @@ function handleDeepgram(clientWs) {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`MayaMind POC → http://localhost:${PORT}`);
   console.log(`  Model:  claude-sonnet-4-6`);
   console.log(`  Voice:  ${process.env.ELEVENLABS_VOICE_ID}`);
+  await verifyDeepgramKey();
 });
