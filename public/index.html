@@ -41,6 +41,38 @@
     }
     #loading.hidden { opacity: 0; pointer-events: none; }
 
+    /* Start overlay — required for Chrome AudioContext user-gesture policy.
+       One click here un-suspends the AudioContext for the entire session. */
+    #start-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10,10,16,0.72);
+      backdrop-filter: blur(4px);
+      cursor: pointer;
+      z-index: 9;
+      transition: opacity 0.4s;
+    }
+    #start-overlay.hidden { opacity: 0; pointer-events: none; }
+
+    #start-overlay .icon {
+      font-size: 52px;
+      margin-bottom: 16px;
+      animation: float 2.5s ease-in-out infinite;
+    }
+    #start-overlay p {
+      font-size: 18px;
+      color: #ccc;
+      letter-spacing: 0.02em;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-8px); }
+    }
+
     /* ── Bottom HUD ── */
     #hud {
       background: linear-gradient(to top, #0a0a10, rgba(10,10,16,0.92));
@@ -155,6 +187,11 @@
 
   <div id="avatar">
     <div id="loading">Loading avatar…</div>
+    <!-- Hidden until avatar is ready; click provides the user gesture Chrome requires -->
+    <div id="start-overlay" class="hidden">
+      <div class="icon">🎤</div>
+      <p>Tap to start talking with Maya</p>
+    </div>
   </div>
 
   <div id="hud">

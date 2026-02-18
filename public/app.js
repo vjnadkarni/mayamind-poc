@@ -17,12 +17,13 @@ const CHAT_URL   = '/api/chat';
 const TTS_URL    = '/api/tts';
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
-const avatarEl     = document.getElementById('avatar');
-const loadingEl    = document.getElementById('loading');
-const transcriptEl = document.getElementById('transcript');
-const statusTextEl = document.getElementById('status-text');
-const statusDotEl  = document.getElementById('status-dot');
-const muteBtn      = document.getElementById('mute-btn');
+const avatarEl      = document.getElementById('avatar');
+const loadingEl     = document.getElementById('loading');
+const startOverlay  = document.getElementById('start-overlay');
+const transcriptEl  = document.getElementById('transcript');
+const statusTextEl  = document.getElementById('status-text');
+const statusDotEl   = document.getElementById('status-dot');
+const muteBtn       = document.getElementById('mute-btn');
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const S = { LOADING: 'loading', LISTENING: 'listening', PROCESSING: 'processing', SPEAKING: 'speaking' };
@@ -54,13 +55,21 @@ async function init() {
       lipsyncLang: 'en',
     });
     loadingEl.classList.add('hidden');
+    // Show the start overlay. The user's tap is the user gesture Chrome needs
+    // before AudioContext (used internally by TalkingHead) is allowed to play audio.
+    startOverlay.classList.remove('hidden');
+    setStatus(S.LOADING, 'Tap anywhere to start');
   } catch (err) {
     console.error('[Avatar] load failed:', err);
     loadingEl.textContent = `Avatar failed to load: ${err.message}. Check AVATAR_URL and console.`;
     return;
   }
 
-  // Start always-on mic + Deepgram stream
+  // Wait for the user's tap — this is the required user gesture for AudioContext
+  await new Promise(resolve => startOverlay.addEventListener('click', resolve, { once: true }));
+  startOverlay.classList.add('hidden');
+
+  // Now open mic + Deepgram (audio playback will work because we have a user gesture)
   try {
     await openMic();
   } catch (err) {
