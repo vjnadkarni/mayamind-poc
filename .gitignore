@@ -1,0 +1,12 @@
+# env
+.env
+
+# dependencies
+node_modules/
+
+# TalkingHead assets (downloaded by setup.sh — not committed)
+public/modules/
+public/avatars/
+public/animations/
+
+

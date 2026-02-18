@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MayaMind</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0a10;
+      color: #e0e0e0;
+      font-family: system-ui, -apple-system, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Avatar canvas (takes most of screen) ── */
+    #avatar {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      position: relative;
+    }
+
+    /* TalkingHead renders its own canvas into #avatar */
+    #avatar canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* Loading overlay */
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0a0a10;
+      color: #666;
+      font-size: 14px;
+      z-index: 10;
+      transition: opacity 0.5s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    /* ── Bottom HUD ── */
+    #hud {
+      background: linear-gradient(to top, #0a0a10, rgba(10,10,16,0.92));
+      padding: 10px 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 28vh;
+      flex-shrink: 0;
+    }
+
+    #status {
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    #status.active  { color: #4caf50; }
+    #status.think   { color: #ff9800; }
+    #status.speak   { color: #2196f3; }
+    #status.error   { color: #f44336; }
+
+    /* ── Transcript ── */
+    #transcript {
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 13px;
+      min-height: 0;
+    }
+
+    .msg {
+      padding: 5px 10px;
+      border-radius: 8px;
+      max-width: 85%;
+      line-height: 1.4;
+    }
+    .msg.user {
+      background: #1e1e2e;
+      color: #aaa;
+      align-self: flex-end;
+    }
+    .msg.assistant {
+      background: #0d2a45;
+      color: #7db8e8;
+      align-self: flex-start;
+    }
+    .msg.interim {
+      opacity: 0.45;
+      font-style: italic;
+    }
+
+    /* ── Controls ── */
+    #controls {
+      display: flex;
+      justify-content: center;
+      padding-top: 4px;
+    }
+
+    #mic-btn {
+      background: #1a4a8a;
+      color: #fff;
+      border: none;
+      border-radius: 28px;
+      padding: 10px 32px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      user-select: none;
+    }
+    #mic-btn:hover:not(:disabled) { background: #2460b0; }
+    #mic-btn:active:not(:disabled) { transform: scale(0.97); }
+    #mic-btn.recording { background: #8a1a1a; }
+    #mic-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <div id="avatar">
+    <div id="loading">Loading avatar…</div>
+  </div>
+
+  <div id="hud">
+    <div id="status">Initializing…</div>
+    <div id="transcript"></div>
+    <div id="controls">
+      <button id="mic-btn" disabled>🎤 Speak</button>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
