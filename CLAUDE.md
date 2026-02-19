@@ -1,8 +1,9 @@
+
 # MayaMind TalkingHead POC — CLAUDE.md
 
 ## Project Overview
 
-A real-time interactive avatar web app. User speaks → Deepgram transcribes → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. Target end-to-end latency: ~3 seconds.
+A real-time interactive avatar web app. User speaks → Deepgram transcribes → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. Target end-to-end latency: ~3 seconds. Supports barge-in (user can interrupt the avatar mid-response).
 
 This is a fast POC. No auth, no database, no production hardening. Get the conversation loop working.
 
@@ -31,6 +32,7 @@ mayamind-poc/
     ├── app.js              # Conversation pipeline orchestration
     ├── modules/            # TalkingHead JS modules (from GitHub release)
     ├── avatars/            # GLB avatar file(s)
+    ├── backgrounds/        # JPG background images for settings panel
     └── animations/         # FBX Mixamo animations
 ```
 
@@ -151,6 +153,17 @@ flushElevenLabs();
 - `head.isSpeaking` (boolean) and `head.stopSpeaking()` / `head.pauseSpeaking()` are available
 - ElevenLabs returns char-level alignment — `alignmentToWords()` in `app.js` aggregates to word-level
 
+### Barge-In (Interrupting the Avatar)
+
+The user can interrupt the avatar at any time during PROCESSING or SPEAKING states:
+
+- **Mic stays open** — audio keeps flowing to Deepgram even while the avatar speaks
+- **Detection**: Any Deepgram transcript during PROCESSING/SPEAKING triggers `bargeIn()`
+- **`bargeIn()`**: Aborts the `AbortController` (cancels in-flight Claude stream + TTS fetches), calls `head.stopSpeaking()`, resets state to LISTENING
+- **Context preservation**: Partial assistant responses are saved to `conversationHistory` with a trailing "…" so Claude has context
+- **Echo suppression**: WebRTC `echoCancellation: true` (set on `getUserMedia`) prevents the avatar's own audio from triggering false barge-ins
+- **AbortController**: Created at the start of each `runConversation()` call; `signal` is passed to all `fetch()` calls (Claude + TTS)
+
 ### Audio Capture (Frontend)
 
 - `navigator.mediaDevices.getUserMedia({ audio: true })`
@@ -168,8 +181,11 @@ const conversationHistory = [];
 
 - Dark background, full-screen WebGL canvas (~80% viewport)
 - Small transcript panel at bottom (user messages gray, assistant blue)
-- Mic button / hold-to-talk
+- Mic mute/unmute button
 - Status text: "Listening..." / "Thinking..." / "Speaking..."
+- Settings panel (gear icon): camera view, background (image-based), mood, lighting, voice, profiles
+- Backgrounds: Default (dark), Office, Living Room, Nature, Beach — scale/position adapts per camera view
+- Settings profiles persist to localStorage
 - No CSS framework — basic flexbox
 
 ## Latency Optimization Checklist

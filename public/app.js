@@ -4,8 +4,9 @@
  * State machine:
  *   LOADING → LISTENING → PROCESSING → SPEAKING → LISTENING → …
  *
- * Mic is always open. Audio is muted to Deepgram while processing/speaking
- * to prevent echo. Conversation resumes automatically after avatar finishes.
+ * Mic is always open. Barge-in supported: speaking during PROCESSING or
+ * SPEAKING interrupts the avatar, aborts in-flight requests, and starts
+ * a new listening cycle. Echo cancellation (WebRTC) suppresses avatar audio.
  */
 
 import { TalkingHead } from './modules/talkinghead.mjs';
@@ -79,10 +80,11 @@ let state = S.LOADING;
 let head;                       // TalkingHead instance
 let sharedAudioCtx;             // AudioContext we own and pass to TalkingHead
 let mediaStream, mediaRecorder, dgWs;
-let isMicMuted  = false;        // gate on ondataavailable — true while processing/speaking
+let isMicMuted  = false;        // gate on ondataavailable — user-controlled mute only
 let keepAliveId = null;         // interval id for Deepgram KeepAlive while muted
 let accFinal    = '';           // accumulated is_final Deepgram segments this utterance
 let conversationHistory = [];   // Claude messages array (capped at 20)
+let currentAbort = null;        // AbortController for in-flight conversation (barge-in)
 
 // Background scale & position per camera view — close-up views zoom the
 // background in; wider views shift down so the ground aligns with the avatar's feet.
@@ -401,6 +403,13 @@ function handleDG(e) {
       console.log(`[Deepgram] ${msg.is_final ? 'FINAL' : 'interim'} | speech_final=${msg.speech_final} | "${transcript}"`);
     }
 
+    // ── Barge-in: user spoke while avatar is processing/speaking ──
+    if (transcript && (state === S.PROCESSING || state === S.SPEAKING)) {
+      console.log('[BargeIn] speech detected during', state, '→ interrupting');
+      bargeIn();
+      // State is now LISTENING — fall through to normal handling
+    }
+
     // Interim result: show what we're hearing in real time
     if (!msg.is_final) {
       if (transcript && state === S.LISTENING) {
@@ -440,13 +449,18 @@ function toggleMute() {
   muteBtn.textContent = isMicMuted ? '🔇' : '🎤';
   muteBtn.title       = isMicMuted ? 'Unmute mic' : 'Mute mic';
   muteBtn.classList.toggle('muted', isMicMuted);
-  if (!isMicMuted && state === S.LISTENING) setStatus(S.LISTENING, 'Listening…');
-  if (isMicMuted  && state === S.LISTENING) setStatus(S.LISTENING, 'Muted');
+  if (isMicMuted) {
+    startKeepAlive(); // prevent Deepgram timeout while muted
+    if (state === S.LISTENING) setStatus(S.LISTENING, 'Muted');
+  } else {
+    stopKeepAlive();
+    if (state === S.LISTENING) setStatus(S.LISTENING, 'Listening…');
+  }
 }
 
 // ── Deepgram KeepAlive ─────────────────────────────────────────────────────────
 // Deepgram closes the WS if no audio arrives within its timeout window.
-// While mic is muted (processing/speaking), send KeepAlive to hold the connection.
+// Only needed when user manually mutes mic (audio stops flowing to Deepgram).
 function startKeepAlive() {
   stopKeepAlive();
   keepAliveId = setInterval(() => {
@@ -461,10 +475,13 @@ function stopKeepAlive() {
 
 // ── Conversation pipeline ─────────────────────────────────────────────────────
 async function runConversation(userText) {
-  // Transition → PROCESSING; mute mic immediately to block avatar echo
-  state     = S.PROCESSING;
-  isMicMuted = true;
-  startKeepAlive();
+  // Abort any in-flight conversation (previous barge-in or overlapping call)
+  if (currentAbort) currentAbort.abort();
+  const abort = new AbortController();
+  currentAbort = abort;
+
+  // Transition → PROCESSING; mic stays open for barge-in detection
+  state = S.PROCESSING;
   setStatus(S.PROCESSING, 'Thinking…');
 
   conversationHistory.push({ role: 'user', content: userText });
@@ -490,6 +507,8 @@ async function runConversation(userText) {
       delete audioCache[nextSpeakSeq];
       nextSpeakSeq++;
 
+      if (abort.signal.aborted) continue; // barge-in — don't queue more audio
+
       if (entry) {  // null = sentence was skipped due to TTS error
         anySpeech = true;
         if (state === S.PROCESSING) {
@@ -512,6 +531,7 @@ async function runConversation(userText) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: sentence, voice_id: settings.voiceId }),
+        signal: abort.signal,
       });
       if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
       const data      = await res.json();
@@ -521,6 +541,7 @@ async function runConversation(userText) {
       const timing    = alignmentToWords(data.normalized_alignment || data.alignment);
       audioCache[seq] = { audioBuf, timing };
     } catch (err) {
+      if (abort.signal.aborted) return; // barge-in — exit silently
       console.error(`[TTS] seq ${seq} error:`, err);
       audioCache[seq] = null;  // skip this sentence, unblock queue
     }
@@ -540,6 +561,7 @@ async function runConversation(userText) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: conversationHistory }),
+      signal: abort.signal,
     });
     if (!res.ok) throw new Error(`Chat HTTP ${res.status}`);
 
@@ -585,26 +607,44 @@ async function runConversation(userText) {
     appendTranscript('assistant', fullResponse);
 
   } catch (err) {
+    if (abort.signal.aborted) {
+      // Barge-in: save partial response for context continuity
+      if (fullResponse.trim()) {
+        conversationHistory.push({ role: 'assistant', content: fullResponse.trim() });
+        if (conversationHistory.length > 20) conversationHistory.splice(0, 2);
+        appendTranscript('assistant', fullResponse.trim() + ' …');
+      }
+      return; // bargeIn() already reset state
+    }
     console.error('[Chat] error:', err);
     resumeListening();
     return;
   }
 
   // ── Wait for avatar to finish speaking, then resume listening ─────────────
-  if (anySpeech) {
+  if (anySpeech && !abort.signal.aborted) {
     // Brief delay so TalkingHead can start playing before we poll isSpeaking
     await sleep(400);
     await waitUntilDoneSpeaking();
   }
 
-  resumeListening();
+  if (!abort.signal.aborted) resumeListening();
 }
 
 function resumeListening() {
-  state      = S.LISTENING;
-  isMicMuted = false;
-  stopKeepAlive();
-  accFinal   = '';
+  state    = S.LISTENING;
+  accFinal = '';
+  if (isMicMuted) setStatus(S.LISTENING, 'Muted');
+  else            setStatus(S.LISTENING, 'Listening…');
+}
+
+// ── Barge-in: interrupt avatar and abort in-flight requests ───────────────────
+function bargeIn() {
+  console.log('[BargeIn] interrupting —', state);
+  if (currentAbort) currentAbort.abort();
+  head?.stopSpeaking();
+  accFinal = '';
+  state = S.LISTENING;
   setStatus(S.LISTENING, 'Listening…');
 }
 
