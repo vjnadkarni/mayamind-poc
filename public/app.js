@@ -18,12 +18,11 @@ const TTS_URL    = '/api/tts';
 
 // ── Settings presets ──────────────────────────────────────────────────────────
 const BACKGROUNDS = {
-  default:  '#0a0a10',
-  office:   'linear-gradient(160deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%)',
-  living:   'linear-gradient(160deg, #2d1b00 0%, #3d2b1f 50%, #4a3728 100%)',
-  nature:   'linear-gradient(160deg, #0d3b0d 0%, #1a4d2e 50%, #0a3d5c 100%)',
-  city:     'linear-gradient(160deg, #0c0c1a 0%, #1a1a2e 40%, #2d2d44 100%)',
-  beach:    'linear-gradient(160deg, #0c2d48 0%, #1a6b8a 50%, #c4956a 100%)',
+  default:  { type: 'color', value: '#0a0a10' },
+  office:   { type: 'image', value: './backgrounds/office.jpg' },
+  living:   { type: 'image', value: './backgrounds/living.jpg' },
+  nature:   { type: 'image', value: './backgrounds/nature.jpg' },
+  beach:    { type: 'image', value: './backgrounds/beach.jpg' },
 };
 
 const LIGHTING_PRESETS = {
@@ -85,9 +84,33 @@ let keepAliveId = null;         // interval id for Deepgram KeepAlive while mute
 let accFinal    = '';           // accumulated is_final Deepgram segments this utterance
 let conversationHistory = [];   // Claude messages array (capped at 20)
 
+// Background scale & position per camera view — close-up views zoom the
+// background in; wider views shift down so the ground aligns with the avatar's feet.
+const BG_VIEW = {
+  head:  { size: '280%', pos: 'center 30%' },
+  upper: { size: '180%', pos: 'center 35%' },
+  mid:   { size: '140%', pos: 'center 45%' },
+  full:  { size: 'cover', pos: 'center bottom' },
+};
+
+function updateBackgroundCSS() {
+  const bg = BACKGROUNDS[settings.background] || BACKGROUNDS.default;
+  if (bg.type === 'image') {
+    const view = BG_VIEW[settings.cameraView] || BG_VIEW.full;
+    document.body.style.backgroundColor = '#0a0a10';
+    document.body.style.backgroundImage = `url('${bg.value}')`;
+    document.body.style.backgroundSize = view.size;
+    document.body.style.backgroundPosition = view.pos;
+    document.body.style.backgroundRepeat = 'no-repeat';
+  } else {
+    document.body.style.backgroundImage = 'none';
+    document.body.style.backgroundColor = bg.value;
+  }
+}
+
 // ── Settings: apply functions ─────────────────────────────────────────────────
-function applyCameraView(v) { settings.cameraView = v; head?.setView(v); }
-function applyBackground(v) { settings.background = v; document.body.style.background = BACKGROUNDS[v] || BACKGROUNDS.default; }
+function applyCameraView(v) { settings.cameraView = v; head?.setView(v); updateBackgroundCSS(); }
+function applyBackground(v) { settings.background = v; updateBackgroundCSS(); }
 function applyMood(v)       { settings.mood = v; head?.setMood(v); }
 function applyLighting(v)   { settings.lighting = v; if (head && LIGHTING_PRESETS[v]) head.setLighting(LIGHTING_PRESETS[v]); }
 function applyVoice(v)      { settings.voiceId = v; }
