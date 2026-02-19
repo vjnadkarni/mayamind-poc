@@ -293,7 +293,6 @@ async function init() {
   // Chrome starts it in "suspended" state; we resume inside the tap handler below.
   // Passing it to TalkingHead prevents it from creating a second, unresumable context.
   sharedAudioCtx = new AudioContext();
-  console.log('[AudioCtx] created, state:', sharedAudioCtx.state);
 
   head = new TalkingHead(avatarEl, {
     ttsEndpoint: null,          // we drive TTS ourselves via speakAudio()
@@ -332,7 +331,6 @@ async function init() {
     startOverlay.addEventListener('click', () => {
       // resume() must be called synchronously within the user-gesture handler
       sharedAudioCtx.resume().then(() => {
-        console.log('[AudioCtx] resumed, state:', sharedAudioCtx.state);
         resolve();
       }).catch(err => {
         console.error('[AudioCtx] resume failed:', err);
@@ -375,28 +373,20 @@ async function openMic() {
     };
 
     dgWs.onopen = () => {
-      console.log('[Deepgram] browser WS open');
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
-      console.log('[Deepgram] MediaRecorder mimeType:', mimeType);
 
       mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
 
-      let chunkCount = 0;
       // Gate: only forward audio when mic is unmuted
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0 && dgWs.readyState === WebSocket.OPEN && !isMicMuted) {
           dgWs.send(e.data);
-          chunkCount++;
-          if (chunkCount <= 5 || chunkCount % 50 === 0) {
-            console.log(`[Deepgram] sent chunk #${chunkCount}, size=${e.data.size}`);
-          }
         }
       };
 
       mediaRecorder.start(100); // 100ms chunks → low latency to Deepgram
-      console.log('[Deepgram] MediaRecorder started');
       resolve();
     };
 
@@ -414,22 +404,12 @@ function handleDG(e) {
   let msg;
   try { msg = JSON.parse(e.data); } catch { return; }
 
-  // Log non-Results messages (Metadata, SpeechStarted, UtteranceEnd, etc.)
-  if (msg.type !== 'Results') {
-    console.log('[Deepgram] msg type:', msg.type, msg);
-  }
-
   if (msg.type === 'Results') {
     const alt        = msg.channel?.alternatives?.[0];
     const transcript = alt?.transcript?.trim() || '';
 
-    if (transcript) {
-      console.log(`[Deepgram] ${msg.is_final ? 'FINAL' : 'interim'} | speech_final=${msg.speech_final} | "${transcript}"`);
-    }
-
     // ── Barge-in: user spoke while avatar is processing/speaking ──
     if (transcript && (state === S.PROCESSING || state === S.SPEAKING)) {
-      console.log('[BargeIn] speech detected during', state, '→ interrupting');
       bargeIn();
       // State is now LISTENING — fall through to normal handling
     }

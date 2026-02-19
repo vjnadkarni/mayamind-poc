@@ -175,14 +175,12 @@ function handleDeepgram(clientWs) {
   });
 
   const dgUrl = `wss://api.deepgram.com/v1/listen?${params}`;
-  console.log('[Deepgram] connecting to:', dgUrl.replace(/api\.deepgram\.com/, 'api.deepgram.com'));
 
   const dgWs = new WebSocket(dgUrl, {
     headers: { Authorization: `Token ${process.env.DEEPGRAM_API_KEY}` },
   });
 
   let dgConnected = false;
-  let audioChunks = 0;
   const pendingChunks = [];  // buffer audio arriving before Deepgram WS opens
 
   // Forward browser messages to Deepgram, preserving frame type.
@@ -193,23 +191,11 @@ function handleDeepgram(clientWs) {
     if (dgWs.readyState === WebSocket.OPEN) {
       // Flush any buffered chunks first (preserves order)
       while (pendingChunks.length > 0) {
-        const buffered = pendingChunks.shift();
-        dgWs.send(buffered);
-        audioChunks++;
-        console.log(`[Deepgram] flushed buffered chunk #${audioChunks}, size=${buffered.length || buffered.byteLength}`);
+        dgWs.send(pendingChunks.shift());
       }
       dgWs.send(data, { binary: isBinary });
-      if (isBinary) {
-        audioChunks++;
-        if (audioChunks <= 10 || audioChunks % 100 === 0) {
-          console.log(`[Deepgram] forwarded audio chunk #${audioChunks}, size=${data.length || data.byteLength}`);
-        }
-      } else {
-        console.log(`[Deepgram] forwarded text msg: ${data.toString().substring(0, 80)}`);
-      }
     } else if (dgWs.readyState === WebSocket.CONNECTING) {
       pendingChunks.push(data);
-      console.log(`[Deepgram] buffered chunk while connecting (${pendingChunks.length}), size=${data.length || data.byteLength}`);
     }
   });
 
@@ -218,10 +204,7 @@ function handleDeepgram(clientWs) {
     console.log('[Deepgram] upstream connected ✓');
     // Flush any chunks that arrived during the handshake
     while (pendingChunks.length > 0) {
-      const buffered = pendingChunks.shift();
-      dgWs.send(buffered);
-      audioChunks++;
-      console.log(`[Deepgram] flushed buffered chunk #${audioChunks}, size=${buffered.length || buffered.byteLength}`);
+      dgWs.send(pendingChunks.shift());
     }
   });
 
@@ -240,17 +223,7 @@ function handleDeepgram(clientWs) {
   // Forward Deepgram transcriptions → browser
   // ws v8+ passes (data, isBinary). Deepgram sends text frames; we must
   // forward them as text so the browser receives a string, not a Blob.
-  let msgCount = 0;
   dgWs.on('message', (data, isBinary) => {
-    msgCount++;
-    try {
-      const parsed = JSON.parse(data.toString());
-      if (parsed.type !== 'Results') {
-        console.log(`[Deepgram] msg #${msgCount} type=${parsed.type}`);
-      } else if (parsed.channel?.alternatives?.[0]?.transcript?.trim()) {
-        console.log(`[Deepgram] transcript: "${parsed.channel.alternatives[0].transcript.trim()}" final=${parsed.is_final} speech_final=${parsed.speech_final}`);
-      }
-    } catch { /* binary or non-JSON — ignore */ }
     if (clientWs.readyState === WebSocket.OPEN) {
       clientWs.send(data, { binary: isBinary });
     }
@@ -258,7 +231,7 @@ function handleDeepgram(clientWs) {
 
   dgWs.on('close', (code, reason) => {
     const reasonStr = reason?.toString() || '(none)';
-    console.log(`[Deepgram] upstream closed — code: ${code} | reason: ${reasonStr} | wasConnected: ${dgConnected} | audioChunks: ${audioChunks} | msgsReceived: ${msgCount}`);
+    console.log(`[Deepgram] upstream closed — code: ${code} | reason: ${reasonStr}`);
     if (clientWs.readyState < WebSocket.CLOSING) {
       clientWs.close(code || 1000, reasonStr);
     }
