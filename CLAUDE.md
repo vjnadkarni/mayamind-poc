@@ -3,7 +3,7 @@
 
 ## Project Overview
 
-A real-time interactive avatar web app. User speaks → Deepgram transcribes → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. Target end-to-end latency: ~3 seconds. Supports barge-in (user can interrupt the avatar mid-response).
+A real-time interactive avatar web app. User speaks → Deepgram transcribes → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. Target end-to-end latency: ~3 seconds. Supports barge-in (user can interrupt the avatar mid-response) and mood-aware responses (avatar adapts facial expression, voice tone, and word choice based on user's emotional state).
 
 This is a fast POC. No auth, no database, no production hardening. Get the conversation loop working.
 
@@ -97,7 +97,7 @@ node server/server.js
 - `stream: true` — SSE streaming
 - **Do NOT enable extended thinking** — we want fast token generation
 - Endpoint: `POST /api/chat` — accepts `{ messages, system }`, returns SSE
-- System prompt: Maya is a warm wellness companion for seniors; short sentences; no markdown
+- System prompt: Maya is a warm wellness companion for seniors; short sentences; no markdown; begins each response with `[MOOD:xxx]` tag for emotion-adaptive responses
 
 ### Deepgram WebSocket Proxy (`/ws/deepgram`)
 
@@ -164,6 +164,50 @@ The user can interrupt the avatar at any time during PROCESSING or SPEAKING stat
 - **Echo suppression**: WebRTC `echoCancellation: true` (set on `getUserMedia`) prevents the avatar's own audio from triggering false barge-ins
 - **AbortController**: Created at the start of each `runConversation()` call; `signal` is passed to all `fetch()` calls (Claude + TTS)
 
+### Mood-Aware Responses (Text-Based Emotion Detection)
+
+Claude detects the user's emotion from their transcribed text and outputs a `[MOOD:xxx]` tag at the start of each response. The frontend parses and strips the tag before TTS. This drives three systems simultaneously with zero additional cost or latency:
+
+1. **TalkingHead facial expression** — `head.setMood(mood)` changes avatar face
+2. **ElevenLabs voice settings** — mood-specific `stability` / `similarity_boost` values
+3. **Claude's word choice** — system prompt instructs appropriate tone per mood
+
+**Valid moods** (TalkingHead's exact 8): `neutral`, `happy`, `angry`, `sad`, `fear`, `disgust`, `love`, `sleep`
+
+**Important**: "surprised" is NOT a valid TalkingHead mood — it throws "Unknown mood." error.
+
+**Mood mapping** (user emotion → avatar RESPONSE mood, not mirroring):
+
+| User Emotion | Avatar Mood | Rationale |
+|---|---|---|
+| happy/positive | `happy` | Match positive energy |
+| angry/frustrated | `neutral` | De-escalate, stay calm |
+| sad/lonely | `love` | Warm, empathetic |
+| fearful/anxious | `neutral` | Calm, reassuring |
+| disgusted/annoyed | `neutral` | Understanding |
+| loving/grateful | `love` | Warm reciprocation |
+| tired/sleepy | `happy` | Gently encouraging |
+| default | `neutral` | Safe baseline |
+
+**Voice settings per mood**:
+
+| Mood | Stability | Similarity | Effect |
+|------|-----------|------------|--------|
+| neutral | 0.55 | 0.75 | Balanced, conversational |
+| happy | 0.45 | 0.75 | More expressive |
+| angry | 0.70 | 0.75 | Calm, steady |
+| sad | 0.50 | 0.80 | Soft, warm |
+| fear | 0.65 | 0.75 | Steady, reassuring |
+| disgust | 0.65 | 0.75 | Even, non-judgmental |
+| love | 0.50 | 0.80 | Warm, gentle |
+| sleep | 0.80 | 0.70 | Very steady, quiet |
+
+**SSE mood tag parsing**: The `[MOOD:xxx]` tag (~16 chars) is parsed within the first 2-3 SSE chunks (<100ms). Sentence detection already buffers until `[.!?]\s`, so no TTS sentence is ready before the tag is parsed. Safety valve: if 20+ chars arrive without `[MOOD:`, pipeline proceeds with `neutral`.
+
+**Between turns**: Avatar reverts to the user's manual mood preference (from settings panel) when the response ends.
+
+**`/api/tts` endpoint**: Accepts optional `voice_settings` in the request body; if omitted, uses default `{ stability: 0.5, similarity_boost: 0.75 }`.
+
 ### Audio Capture (Frontend)
 
 - `navigator.mediaDevices.getUserMedia({ audio: true })`
@@ -182,8 +226,8 @@ const conversationHistory = [];
 - Dark background, full-screen WebGL canvas (~80% viewport)
 - Small transcript panel at bottom (user messages gray, assistant blue)
 - Mic mute/unmute button
-- Status text: "Listening..." / "Thinking..." / "Speaking..."
-- Settings panel (gear icon): camera view, background (image-based), mood, lighting, voice, profiles
+- Status text: "Listening..." / "Thinking..." / "Speaking..." with auto-detected mood badge
+- Settings panel (gear icon): camera view, background (image-based), mood (8 valid moods, no "surprised"), lighting, voice, profiles
 - Backgrounds: Default (dark), Office, Living Room, Nature, Beach — scale/position adapts per camera view
 - Settings profiles persist to localStorage
 - No CSS framework — basic flexbox

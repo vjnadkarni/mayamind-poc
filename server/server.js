@@ -29,7 +29,21 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // ── Anthropic client ──────────────────────────────────────────────────────────
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `You are Maya, a warm and caring wellness companion for seniors. You speak in short, clear sentences. Keep responses to 2-3 sentences maximum — this is a spoken conversation, not written text. Be encouraging, patient, and positive. Never use markdown, bullet points, or special formatting. Speak naturally as if talking to a friend.`;
+const SYSTEM_PROMPT = `You are Maya, a warm and caring wellness companion for seniors. You speak in short, clear sentences. Keep responses to 2-3 sentences maximum — this is a spoken conversation, not written text. Be encouraging, patient, and positive. Never use markdown, bullet points, or special formatting. Speak naturally as if talking to a friend.
+
+IMPORTANT: Begin every response with a mood tag [MOOD:xxx] where xxx is one of: neutral, happy, angry, sad, fear, disgust, love, sleep.
+
+Choose the mood that best serves the user emotionally:
+- User is happy or positive → [MOOD:happy]
+- User is angry or frustrated → [MOOD:neutral] (stay calm, de-escalate)
+- User is sad or lonely → [MOOD:love] (warm, empathetic)
+- User is fearful or anxious → [MOOD:neutral] (calm, reassuring)
+- User is disgusted or annoyed → [MOOD:neutral] (understanding, non-judgmental)
+- User expresses love or gratitude → [MOOD:love]
+- User seems tired or sleepy → [MOOD:happy] (gently encouraging)
+- Default or unclear → [MOOD:neutral]
+
+The tag must be the very first text, followed by a space, then your spoken words. Example: [MOOD:happy] That sounds wonderful!`;
 
 // ── POST /api/chat — Anthropic streaming proxy (SSE) ─────────────────────────
 app.post('/api/chat', async (req, res) => {
@@ -80,7 +94,7 @@ app.post('/api/chat', async (req, res) => {
 // Returns JSON: { audio_base64, alignment, normalized_alignment }
 // The browser uses audio_base64 + alignment to call head.speakAudio()
 app.post('/api/tts', async (req, res) => {
-  const { text } = req.body;
+  const { text, voice_settings } = req.body;
 
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'text is required' });
@@ -88,6 +102,7 @@ app.post('/api/tts', async (req, res) => {
 
   const voiceId = req.body.voice_id || process.env.ELEVENLABS_VOICE_ID;
   const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/with-timestamps`;
+  const vs = voice_settings || { stability: 0.5, similarity_boost: 0.75 };
 
   try {
     const elRes = await fetch(url, {
@@ -99,7 +114,7 @@ app.post('/api/tts', async (req, res) => {
       body: JSON.stringify({
         text: text.trim(),
         model_id: 'eleven_turbo_v2_5',
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        voice_settings: vs,
       }),
     });
 

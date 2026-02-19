@@ -146,6 +146,18 @@
       text-transform: uppercase;
     }
 
+    .mood-badge {
+      font-size: 10px;
+      color: #999;
+      background: #1e1e2e;
+      padding: 2px 7px;
+      border-radius: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: color 0.3s, background 0.3s;
+    }
+    .mood-badge:empty { display: none; }
+
     /* Mute button */
     #mute-btn {
       background: transparent;
@@ -375,7 +387,6 @@
         <button data-value="disgust">Disgust</button>
         <button data-value="love">Love</button>
         <button data-value="sleep">Sleep</button>
-        <button data-value="surprised">Surprised</button>
       </div>
     </div>
 
@@ -418,6 +429,7 @@
       <div id="status-left">
         <div id="status-dot" class="dot loading"></div>
         <span id="status-text">Initializing…</span>
+        <span id="mood-indicator" class="mood-badge" title="Detected mood"></span>
       </div>
       <button id="mute-btn" disabled title="Mute mic">🎤</button>
     </div>

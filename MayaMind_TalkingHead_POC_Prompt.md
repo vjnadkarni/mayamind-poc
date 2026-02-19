@@ -101,10 +101,26 @@ Create a POST endpoint `/api/chat` that:
 
 The system prompt should be:
 ```
-You are Maya, a warm and caring wellness companion for seniors. You speak in short, 
-clear sentences. Keep responses to 2-3 sentences maximum — this is a spoken conversation, 
-not written text. Be encouraging, patient, and positive. Never use markdown, bullet points, 
+You are Maya, a warm and caring wellness companion for seniors. You speak in short,
+clear sentences. Keep responses to 2-3 sentences maximum — this is a spoken conversation,
+not written text. Be encouraging, patient, and positive. Never use markdown, bullet points,
 or special formatting. Speak naturally as if talking to a friend.
+
+IMPORTANT: Begin every response with a mood tag [MOOD:xxx] where xxx is one of:
+neutral, happy, angry, sad, fear, disgust, love, sleep.
+
+Choose the mood that best serves the user emotionally:
+- User is happy or positive → [MOOD:happy]
+- User is angry or frustrated → [MOOD:neutral] (stay calm, de-escalate)
+- User is sad or lonely → [MOOD:love] (warm, empathetic)
+- User is fearful or anxious → [MOOD:neutral] (calm, reassuring)
+- User is disgusted or annoyed → [MOOD:neutral] (understanding, non-judgmental)
+- User expresses love or gratitude → [MOOD:love]
+- User seems tired or sleepy → [MOOD:happy] (gently encouraging)
+- Default or unclear → [MOOD:neutral]
+
+The tag must be the very first text, followed by a space, then your spoken words.
+Example: [MOOD:happy] That sounds wonderful!
 ```
 
 **Critical for latency:** Stream the Claude response and begin sending text to ElevenLabs as soon as the first complete sentence arrives — do NOT wait for the full response. Split on sentence boundaries (period, question mark, exclamation mark followed by a space).
@@ -274,6 +290,42 @@ node server.js
 # Open http://localhost:3000 in Chrome
 ```
 
+## Mood-Aware Responses
+
+The avatar automatically detects the user's emotion from their transcribed text and responds with an appropriate mood — affecting facial expression, voice tone, and word choice — with zero additional cost or latency.
+
+### How It Works
+
+1. **Claude detects emotion** — The system prompt instructs Claude to output a `[MOOD:xxx]` tag at the start of each response
+2. **Frontend parses and strips the tag** — before sending text to TTS
+3. **Three systems adapt simultaneously**:
+   - `head.setMood(mood)` — TalkingHead facial expression
+   - ElevenLabs `voice_settings` — mood-specific `stability` / `similarity_boost`
+   - Claude's word choice — system prompt instructs appropriate tone per mood
+
+### Valid Moods (TalkingHead's exact 8)
+
+`neutral`, `happy`, `angry`, `sad`, `fear`, `disgust`, `love`, `sleep`
+
+**Note**: "surprised" is NOT a valid TalkingHead mood and will crash with "Unknown mood." error.
+
+### Voice Settings per Mood
+
+| Mood | Stability | Similarity | Effect |
+|------|-----------|------------|--------|
+| neutral | 0.55 | 0.75 | Balanced, conversational |
+| happy | 0.45 | 0.75 | More expressive |
+| angry | 0.70 | 0.75 | Calm, steady |
+| sad | 0.50 | 0.80 | Soft, warm |
+| fear | 0.65 | 0.75 | Steady, reassuring |
+| disgust | 0.65 | 0.75 | Even, non-judgmental |
+| love | 0.50 | 0.80 | Warm, gentle |
+| sleep | 0.80 | 0.70 | Very steady, quiet |
+
+### Barge-In Support
+
+The user can interrupt the avatar at any time by speaking. Deepgram detects speech during the avatar's response, aborts in-flight Claude and TTS requests, stops the avatar speaking, and immediately begins processing the new user utterance. The mic stays open at all times (WebRTC echo cancellation prevents false triggers from the avatar's own audio).
+
 ## Success Criteria
 
 The POC is successful if:
@@ -283,6 +335,8 @@ The POC is successful if:
 4. ✅ The avatar's voice sounds natural (ElevenLabs quality, not robotic)
 5. ✅ End-to-end latency from user stopping to avatar starting to speak is ≤5 seconds (target 3s)
 6. ✅ Multiple back-and-forth exchanges work (conversation context is maintained)
+7. ✅ Avatar adapts facial expression and voice tone based on user's emotional state
+8. ✅ User can interrupt the avatar mid-response (barge-in)
 
 ## API Reference Quick Links
 

@@ -53,6 +53,20 @@ const VOICES = {
   'VR6AewLTigWG4xSOukaG': 'Arnold',
 };
 
+// ElevenLabs voice_settings per mood — adjusts tone to match avatar emotion
+const MOOD_VOICE_SETTINGS = {
+  neutral: { stability: 0.55, similarity_boost: 0.75 },
+  happy:   { stability: 0.45, similarity_boost: 0.75 },
+  angry:   { stability: 0.70, similarity_boost: 0.75 },
+  sad:     { stability: 0.50, similarity_boost: 0.80 },
+  fear:    { stability: 0.65, similarity_boost: 0.75 },
+  disgust: { stability: 0.65, similarity_boost: 0.75 },
+  love:    { stability: 0.50, similarity_boost: 0.80 },
+  sleep:   { stability: 0.80, similarity_boost: 0.70 },
+};
+
+const VALID_MOODS = Object.keys(MOOD_VOICE_SETTINGS);
+
 const DEFAULT_SETTINGS = {
   cameraView: 'upper',
   background: 'default',
@@ -85,6 +99,7 @@ let keepAliveId = null;         // interval id for Deepgram KeepAlive while mute
 let accFinal    = '';           // accumulated is_final Deepgram segments this utterance
 let conversationHistory = [];   // Claude messages array (capped at 20)
 let currentAbort = null;        // AbortController for in-flight conversation (barge-in)
+let detectedMood = 'neutral';   // auto-detected mood from Claude's [MOOD:xxx] tag
 
 // Background scale & position per camera view — close-up views zoom the
 // background in; wider views shift down so the ground aligns with the avatar's feet.
@@ -116,6 +131,15 @@ function applyBackground(v) { settings.background = v; updateBackgroundCSS(); }
 function applyMood(v)       { settings.mood = v; head?.setMood(v); }
 function applyLighting(v)   { settings.lighting = v; if (head && LIGHTING_PRESETS[v]) head.setLighting(LIGHTING_PRESETS[v]); }
 function applyVoice(v)      { settings.voiceId = v; }
+
+// Auto-detected mood from Claude's response — sets avatar face + updates badge
+function applyDetectedMood(mood) {
+  if (!VALID_MOODS.includes(mood)) mood = 'neutral';
+  detectedMood = mood;
+  head?.setMood(mood);
+  const indicator = document.getElementById('mood-indicator');
+  if (indicator) indicator.textContent = mood;
+}
 
 function applyAllSettings(s) {
   applyCameraView(s.cameraView || DEFAULT_SETTINGS.cameraView);
@@ -490,6 +514,8 @@ async function runConversation(userText) {
   let fullResponse  = '';
   let buffer        = '';
   let anySpeech     = false;
+  let moodParsed    = false;      // whether we've parsed the [MOOD:xxx] tag
+  let responseMood  = 'neutral';  // detected mood for this response
 
   // ── Concurrent TTS with strictly ordered speakAudio calls ─────────────────
   // Multiple ElevenLabs requests fire in parallel as sentences arrive from
@@ -530,7 +556,11 @@ async function runConversation(userText) {
       const res = await fetch(TTS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sentence, voice_id: settings.voiceId }),
+        body: JSON.stringify({
+          text: sentence,
+          voice_id: settings.voiceId,
+          voice_settings: MOOD_VOICE_SETTINGS[responseMood] || MOOD_VOICE_SETTINGS.neutral,
+        }),
         signal: abort.signal,
       });
       if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
@@ -586,6 +616,26 @@ async function runConversation(userText) {
         buffer       += parsed.text;
         fullResponse += parsed.text;
 
+        // ── Parse [MOOD:xxx] tag from start of response (one-time) ──
+        if (!moodParsed) {
+          if (fullResponse.includes(']')) {
+            const moodMatch = fullResponse.match(/^\[MOOD:(\w+)\]\s*/);
+            if (moodMatch) {
+              responseMood = moodMatch[1].toLowerCase();
+              const tagLen = moodMatch[0].length;
+              fullResponse = fullResponse.slice(tagLen);
+              buffer = buffer.slice(tagLen);
+              applyDetectedMood(responseMood);
+              console.log('[Mood] detected:', responseMood);
+            }
+            moodParsed = true;
+          } else if (fullResponse.length > 20 && !fullResponse.startsWith('[MOOD:')) {
+            moodParsed = true; // no tag — proceed with neutral
+            console.log('[Mood] no tag detected, using neutral');
+          }
+          if (!moodParsed) continue; // wait for more tokens
+        }
+
         // Flush complete sentence to TTS as soon as it's ready
         const m = buffer.match(/[.!?]\s/);
         if (m) {
@@ -634,6 +684,8 @@ async function runConversation(userText) {
 function resumeListening() {
   state    = S.LISTENING;
   accFinal = '';
+  // Revert avatar mood to user's manual preference between turns
+  head?.setMood(settings.mood);
   if (isMicMuted) setStatus(S.LISTENING, 'Muted');
   else            setStatus(S.LISTENING, 'Listening…');
 }
