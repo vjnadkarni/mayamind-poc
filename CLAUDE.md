@@ -1,20 +1,55 @@
 
-# MayaMind TalkingHead POC — CLAUDE.md
+# MayaMind — CLAUDE.md
 
 ## Project Overview
 
-A real-time interactive avatar web app. User speaks → Deepgram transcribes → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. Target end-to-end latency: ~3 seconds. Supports barge-in (user can interrupt the avatar mid-response) and mood-aware responses (avatar adapts facial expression, voice tone, and word choice based on user's emotional state).
+MayaMind is an AI-powered companion and wellness platform for seniors, delivered through a single iPad. It combines a lifelike 3D avatar with camera-based exercise coaching — two capabilities no competitor offers together.
 
-This is a fast POC. No auth, no database, no production hardening. Get the conversation loop working.
+The **proof-of-concept** (tagged `v0.1.0`) validated the core conversation loop: User speaks → speech recognized → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. End-to-end latency: sub-3 seconds. Supports barge-in and mood-aware responses.
 
-## Architecture
+The project is now moving to **production implementation**, starting with a web-based MediaPipe exercise detection prototype.
 
-```
-User mic → Deepgram STT (WebSocket) → Claude Sonnet 4.6 (SSE streaming)
-         → ElevenLabs TTS (WebSocket) → TalkingHead 3D avatar (lip-sync)
-```
+## Product Documents
 
-All API keys stay server-side. Browser only talks to localhost WebSocket/HTTP proxies.
+All product documents live in `docs/` as Markdown:
+
+- `docs/MayaMind_Executive_Summary.md` — v1.01, high-level overview
+- `docs/MayaMind_MRD_v1.02.md` — Market Requirements Document
+- `docs/MayaMind_PRD_v1.04.md` — Product Requirements Document (authoritative spec)
+
+Original `.docx` versions are also in `docs/` for reference but are no longer maintained.
+
+## Production Technology Stack (from PRD v1.04)
+
+| Component | Technology | Where It Runs | Cost |
+|-----------|-----------|---------------|------|
+| AI Avatar | TalkingHead (ThreeJS/WebGL) | On-device | Free (open-source) |
+| Speech Recognition | Apple Speech framework | On-device | Free (bundled with iPadOS) |
+| Pose Estimation | MediaPipe | On-device (Neural Engine) | Free |
+| LLM | Claude API (Anthropic) | Cloud | Per-token |
+| Text-to-Speech | ElevenLabs | Cloud | Per-character |
+| Emotion Detection | Text-based via Claude `[MOOD:xxx]` tags | Cloud (piggybacked on LLM) | Free (included in LLM call) |
+| Local Database | SQLite | On-device | Free |
+| Cloud Database | Supabase (opt-in) | Cloud | Free tier / $25/mo Pro |
+| Web Portals | React + REST API | Cloud | — |
+| Device Management | Apple Business Manager + MDM | Cloud | — |
+
+Key principle: **Only two cloud APIs incur per-use charges** (Claude and ElevenLabs). Everything else is on-device or free.
+
+## RBAC Roles
+
+| Role | Interface | Access |
+|------|-----------|--------|
+| Senior (User) | iPad app only | Full companion, exercise, personal data |
+| Administrator | Web portal only | User account management, system config; no workout data |
+| Authorized Professional | Web portal only | Workout history, scores, trends; no personal details (DOB, payment) |
+| Family and Friends | Web portal + notifications | Daily summaries, mood trends, engagement data |
+
+## Data Privacy Model
+
+- **Default:** All data stored locally on iPad only. No cloud sync.
+- **Opt-in:** Senior can enable Supabase cloud storage, making structured data (workout scores, engagement metrics, mood trends) visible to authorized professionals and family/friends.
+- **Never transmitted:** Exercise video, raw conversation transcripts.
 
 ## Directory Structure
 
@@ -22,8 +57,15 @@ All API keys stay server-side. Browser only talks to localhost WebSocket/HTTP pr
 mayamind-poc/
 ├── .env                    # API keys — in ROOT (not server/), gitignored
 ├── CLAUDE.md
-├── MayaMind_TalkingHead_POC_Prompt.md
+├── MayaMind_TalkingHead_POC_Prompt.md   # Original POC prompt
 ├── setup.sh                # Downloads TalkingHead assets from GitHub
+├── docs/
+│   ├── MayaMind_Executive_Summary.md    # v1.01
+│   ├── MayaMind_MRD_v1.02.md
+│   ├── MayaMind_PRD_v1.04.md
+│   ├── MayaMind_Executive_Summary.docx  # Original (not maintained)
+│   ├── MayaMind_MRD_v1.01.docx         # Original (not maintained)
+│   └── MayaMind_PRD_v1.03.docx         # Original (not maintained)
 ├── server/
 │   ├── server.js           # Express server: static files + API proxies
 │   └── package.json
@@ -36,227 +78,93 @@ mayamind-poc/
     └── animations/         # FBX Mixamo animations
 ```
 
-## Tech Stack
+## POC Details (v0.1.0)
+
+The POC uses a slightly different stack than production (web-based, Deepgram for STT). It remains useful as a working reference for the TalkingHead + Claude + ElevenLabs conversation loop.
+
+### POC Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
-| Avatar | TalkingHead 3D (github.com/met4citizen/TalkingHead) — ThreeJS/WebGL |
-| STT | Deepgram Nova-3, WebSocket streaming |
+| Avatar | TalkingHead 3D (ThreeJS/WebGL) |
+| STT | Deepgram Nova-2, WebSocket streaming |
 | LLM | Claude Sonnet 4.6 (`claude-sonnet-4-6`) via Anthropic API |
-| TTS | ElevenLabs `eleven_turbo_v2_5`, WebSocket streaming |
+| TTS | ElevenLabs `eleven_turbo_v2_5`, HTTP per-sentence via `/api/tts` |
 | Backend | Node.js + Express |
 | Frontend | Vanilla HTML/JS, no framework |
 
-## Environment Variables
+### Environment Variables
 
-`.env` lives in the **project root** (not `server/`). `server.js` loads it with `require('dotenv').config({ path: '../.env' })` or `path.join(__dirname, '..', '.env')`.
+`.env` lives in the **project root** (not `server/`). `server.js` loads it with `path.join(__dirname, '..', '.env')`.
 
-All required keys are present in `.env` **except** `ELEVENLABS_VOICE_ID`, which must be added:
+Keys used by the POC:
+- `ANTHROPIC_API_KEY`
+- `DEEPGRAM_API_KEY`
+- `ELEVENLABS_API_KEY`
+- `ELEVENLABS_VOICE_ID` (Rachel: `21m00Tcm4TlvDq8ikWAM`)
+- `PORT=3000`
 
-```
-ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM   # Rachel — warm conversational female
-```
-
-Keys used by this project:
-- `ANTHROPIC_API_KEY` ✅
-- `DEEPGRAM_API_KEY` ✅
-- `ELEVENLABS_API_KEY` ✅
-- `ELEVENLABS_VOICE_ID` — **ADD THIS** (Rachel: `21m00Tcm4TlvDq8ikWAM`)
-- `PORT=3000` — add if not present
-
-## Setup
-
-### 1. Run the setup script (first time only)
+### Running the POC
 
 ```bash
-chmod +x setup.sh && ./setup.sh
-```
-
-This clones TalkingHead, copies modules/avatars/animations, and runs `npm install`.
-
-### 2. Update avatar filename if needed
-
-```bash
-ls public/avatars/      # see what GLB was copied
-# Update AVATAR_URL constant at top of public/app.js if filename differs from brunette.glb
-```
-
-### 3. Run
-
-```bash
+chmod +x setup.sh && ./setup.sh   # First time only
 node server/server.js
-# Open http://localhost:3000 in Chrome
+# Open http://localhost:3000 in Chrome or Safari
 ```
 
-## Key Implementation Details
+### Key POC Implementation Details
 
-### Claude API
+**Claude API:**
+- Model: `claude-sonnet-4-6` (no date suffix)
+- `max_tokens: 300`, `stream: true` — SSE streaming
+- Do NOT enable extended thinking
+- System prompt: Maya is a warm wellness companion; short sentences; no markdown; `[MOOD:xxx]` tag at start of each response
 
-- Model: `claude-sonnet-4-6` (do NOT add a date suffix — use this exact ID)
-- `max_tokens: 300` — keeps responses short and fast
-- `stream: true` — SSE streaming
-- **Do NOT enable extended thinking** — we want fast token generation
-- Endpoint: `POST /api/chat` — accepts `{ messages, system }`, returns SSE
-- System prompt: Maya is a warm wellness companion for seniors; short sentences; no markdown; begins each response with `[MOOD:xxx]` tag for emotion-adaptive responses
+**Deepgram WebSocket Proxy (`/ws/deepgram`):**
+- Config: `{ model: "nova-2", language: "en", smart_format: true, interim_results: true, endpointing: 500, utterance_end_ms: 1500 }`
 
-### Deepgram WebSocket Proxy (`/ws/deepgram`)
+**TalkingHead:**
+- Constructor: `ttsEndpoint: null`, `lipsyncLang: 'en'`, `lipsyncModules: ['en']`
+- Default `lipsyncLang` is `'fi'` (Finnish) — always override to `'en'`
+- `speakAudio()` expects `{ audio: ArrayBuffer, words: string[], wtimes: number[], wdurations: number[] }`
+- `speakAudio` is synchronous — queues audio and returns immediately
 
-- Upstream: `wss://api.deepgram.com/v1/listen`
-- Config: `{ model: "nova-3", language: "en", smart_format: true, interim_results: true, endpointing: 300, utterance_end_ms: 1000 }`
-- `endpointing: 300` = detects end-of-speech after 300ms silence (default 800ms saves ~500ms)
-- Trigger Claude call on `utterance_end` event or final transcript
+**Mood-Aware Responses:**
+- Valid moods (TalkingHead's exact 8): `neutral`, `happy`, `angry`, `sad`, `fear`, `disgust`, `love`, `sleep`
+- "surprised" is NOT valid — throws "Unknown mood." error
+- Claude detects emotion from transcript, tags response with `[MOOD:xxx]`
+- Frontend parses tag, calls `head.setMood()`, adjusts ElevenLabs voice settings per mood
 
-### ElevenLabs WebSocket Proxy (`/ws/elevenlabs`)
+**Barge-In:**
+- Mic stays open during avatar speech; Deepgram transcript triggers `bargeIn()`
+- Aborts in-flight Claude stream + TTS fetches, calls `head.stopSpeaking()`
+- WebRTC `echoCancellation: true` prevents false triggers
 
-- Upstream: `wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input?model_id=eleven_turbo_v2_5&output_format=pcm_16000`
-- Model: `eleven_turbo_v2_5` (lowest latency)
-- Init message: `{ text: " ", voice_settings: { stability: 0.5, similarity_boost: 0.75 }, generation_config: { chunk_length_schedule: [120, 160, 250, 290] }, xi_api_key: "...", try_trigger_generation: true }`
-- Text chunk messages: `{ text: "sentence ", try_trigger_generation: true }`
-- Flush signal (end of LLM response): `{ text: "" }`
-- Returns audio (PCM) + alignment JSON (character-level timestamps) — forward both to browser
+## Next Phase: MediaPipe Exercise Detection Prototype
 
-### Sentence-Level Pipelining (Critical for Latency)
+Web-based prototype using Safari (to use Apple's speech engine via Web Speech API, matching production iPad's Apple Speech framework).
 
-Do NOT wait for the full Claude response. As SSE tokens arrive, buffer and detect sentence boundaries:
+Target exercises for pilot:
+1. Chair squats (sit-to-stand)
+2. Inclined push-ups (wall push-ups)
+3. Single-leg stand
+4. Brisk walking (on treadmill)
 
-```javascript
-let buffer = '';
-// On each token:
-buffer += token;
-const match = buffer.match(/[.!?]\s/);
-if (match) {
-  const sentence = buffer.substring(0, match.index + 1);
-  buffer = buffer.substring(match.index + 2);
-  sendToElevenLabs(sentence);
-}
-// On SSE stream end:
-if (buffer.trim()) sendToElevenLabs(buffer);
-flushElevenLabs();
-```
+Prototype goals: Exercise auto-detection, rep counting, form assessment with quality scoring. Computational load must be low-to-medium for eventual iPad portability.
 
-### TalkingHead Integration
-
-- Import: `import { TalkingHead } from './modules/talkinghead.mjs'`
-- Constructor: set `ttsEndpoint: null`, `lipsyncLang: 'en'`, `lipsyncModules: ['en']`
-  - **Default `lipsyncLang` is `'fi'` (Finnish)** — always override to `'en'`
-- `cameraView: 'upper'` (head and shoulders)
-- `speakAudio(r, opt, onsubtitles)` signature — **verified from actual source**:
-  ```javascript
-  // r.audio must be ArrayBuffer (raw MP3/WAV bytes), NOT a Web Audio AudioBuffer
-  // TalkingHead decodes audio internally with its own AudioContext
-  head.speakAudio(
-    { audio: ArrayBuffer, words: string[], wtimes: number[], wdurations: number[] },
-    { lipsyncLang: 'en' }
-  );
-  ```
-- `speakAudio` is **synchronous** — it queues audio and returns immediately. Multiple calls queue in order.
-- `head.isSpeaking` (boolean) and `head.stopSpeaking()` / `head.pauseSpeaking()` are available
-- ElevenLabs returns char-level alignment — `alignmentToWords()` in `app.js` aggregates to word-level
-
-### Barge-In (Interrupting the Avatar)
-
-The user can interrupt the avatar at any time during PROCESSING or SPEAKING states:
-
-- **Mic stays open** — audio keeps flowing to Deepgram even while the avatar speaks
-- **Detection**: Any Deepgram transcript during PROCESSING/SPEAKING triggers `bargeIn()`
-- **`bargeIn()`**: Aborts the `AbortController` (cancels in-flight Claude stream + TTS fetches), calls `head.stopSpeaking()`, resets state to LISTENING
-- **Context preservation**: Partial assistant responses are saved to `conversationHistory` with a trailing "…" so Claude has context
-- **Echo suppression**: WebRTC `echoCancellation: true` (set on `getUserMedia`) prevents the avatar's own audio from triggering false barge-ins
-- **AbortController**: Created at the start of each `runConversation()` call; `signal` is passed to all `fetch()` calls (Claude + TTS)
-
-### Mood-Aware Responses (Text-Based Emotion Detection)
-
-Claude detects the user's emotion from their transcribed text and outputs a `[MOOD:xxx]` tag at the start of each response. The frontend parses and strips the tag before TTS. This drives three systems simultaneously with zero additional cost or latency:
-
-1. **TalkingHead facial expression** — `head.setMood(mood)` changes avatar face
-2. **ElevenLabs voice settings** — mood-specific `stability` / `similarity_boost` values
-3. **Claude's word choice** — system prompt instructs appropriate tone per mood
-
-**Valid moods** (TalkingHead's exact 8): `neutral`, `happy`, `angry`, `sad`, `fear`, `disgust`, `love`, `sleep`
-
-**Important**: "surprised" is NOT a valid TalkingHead mood — it throws "Unknown mood." error.
-
-**Mood mapping** (user emotion → avatar RESPONSE mood, not mirroring):
-
-| User Emotion | Avatar Mood | Rationale |
-|---|---|---|
-| happy/positive | `happy` | Match positive energy |
-| angry/frustrated | `neutral` | De-escalate, stay calm |
-| sad/lonely | `love` | Warm, empathetic |
-| fearful/anxious | `neutral` | Calm, reassuring |
-| disgusted/annoyed | `neutral` | Understanding |
-| loving/grateful | `love` | Warm reciprocation |
-| tired/sleepy | `happy` | Gently encouraging |
-| default | `neutral` | Safe baseline |
-
-**Voice settings per mood**:
-
-| Mood | Stability | Similarity | Effect |
-|------|-----------|------------|--------|
-| neutral | 0.55 | 0.75 | Balanced, conversational |
-| happy | 0.45 | 0.75 | More expressive |
-| angry | 0.70 | 0.75 | Calm, steady |
-| sad | 0.50 | 0.80 | Soft, warm |
-| fear | 0.65 | 0.75 | Steady, reassuring |
-| disgust | 0.65 | 0.75 | Even, non-judgmental |
-| love | 0.50 | 0.80 | Warm, gentle |
-| sleep | 0.80 | 0.70 | Very steady, quiet |
-
-**SSE mood tag parsing**: The `[MOOD:xxx]` tag (~16 chars) is parsed within the first 2-3 SSE chunks (<100ms). Sentence detection already buffers until `[.!?]\s`, so no TTS sentence is ready before the tag is parsed. Safety valve: if 20+ chars arrive without `[MOOD:`, pipeline proceeds with `neutral`.
-
-**Between turns**: Avatar reverts to the user's manual mood preference (from settings panel) when the response ends.
-
-**`/api/tts` endpoint**: Accepts optional `voice_settings` in the request body; if omitted, uses default `{ stability: 0.5, similarity_boost: 0.75 }`.
-
-### Audio Capture (Frontend)
-
-- `navigator.mediaDevices.getUserMedia({ audio: true })`
-- `MediaRecorder` with `mimeType: 'audio/webm;codecs=opus'` OR AudioWorklet for raw PCM at 16kHz
-- Deepgram prefers linear16 PCM at 16kHz for lowest latency
-
-### Conversation State
-
-```javascript
-const conversationHistory = [];
-// Keep last 20 messages (trim oldest pair when > 20)
-```
-
-### UI
-
-- Dark background, full-screen WebGL canvas (~80% viewport)
-- Small transcript panel at bottom (user messages gray, assistant blue)
-- Mic mute/unmute button
-- Status text: "Listening..." / "Thinking..." / "Speaking..." with auto-detected mood badge
-- Settings panel (gear icon): camera view, background (image-based), mood (8 valid moods, no "surprised"), lighting, voice, profiles
-- Backgrounds: Default (dark), Office, Living Room, Nature, Beach — scale/position adapts per camera view
-- Settings profiles persist to localStorage
-- No CSS framework — basic flexbox
-
-## Latency Optimization Checklist
-
-1. `endpointing: 300` on Deepgram (saves ~500ms vs default)
-2. Stream Claude, start ElevenLabs on first sentence (saves 1–2s)
-3. `eleven_turbo_v2_5` + `chunk_length_schedule: [120, 160, 250, 290]`
-4. `max_tokens: 300` forces short responses
-5. Keep WebSocket connections alive — do NOT reconnect per utterance
-6. No extended thinking on Claude
-
-## Testing
-
-- Test in Chrome on desktop first (best WebGL support)
-- Safari and mobile are out of scope for POC
-- Success: 5 back-and-forth exchanges with ≤5s latency (target 3s)
-
-## Reference Links
-
-- TalkingHead: https://github.com/met4citizen/TalkingHead (README Appendix G + index.html)
-- Deepgram streaming: https://developers.deepgram.com/docs/getting-started-with-live-streaming-audio
-- ElevenLabs WebSocket TTS: https://elevenlabs.io/docs/api-reference/text-to-speech/stream-with-websockets
-- Anthropic streaming: https://docs.anthropic.com/en/api/messages-streaming
+Development machine: MacBook M3 Pro with built-in webcam (narrower FOV than iPad's 122° ultra-wide — user stands further back for full-body visibility).
 
 ## GitHub
 
 - Account: https://github.com/vjnadkarni
 - Remote repo: `git@github.com:vjnadkarni/mayamind-poc.git`
 - **Always use SSH** (`git@github.com:...`) — HTTPS and username/password are disabled
-- Ask the user for the SSH git command if needed before pushing
+
+## Reference Links
+
+- TalkingHead: https://github.com/met4citizen/TalkingHead
+- MediaPipe Pose: https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker
+- Deepgram streaming: https://developers.deepgram.com/docs/getting-started-with-live-streaming-audio
+- ElevenLabs TTS: https://elevenlabs.io/docs/api-reference/text-to-speech
+- Anthropic streaming: https://docs.anthropic.com/en/api/messages-streaming
+- Supabase: https://supabase.com/docs
