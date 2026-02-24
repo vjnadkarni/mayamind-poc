@@ -26,6 +26,96 @@ app.use(express.json());
 // Serve frontend from public/
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// Serve exercise POC from exercise-poc/
+app.use('/exercise-poc', express.static(path.join(__dirname, '..', 'exercise-poc')));
+
+// ── GET /api/config — Public config for browser (Supabase URL + anon key) ────
+app.get('/api/config', (req, res) => {
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || null,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+  });
+});
+
+// ── POST /api/setup-templates-table — Create Supabase templates table ────────
+app.post('/api/setup-templates-table', async (req, res) => {
+  const { SUPABASE_URL, SUPABASE_SERVICE_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const sql = `
+    -- Create exercise_templates table
+    CREATE TABLE IF NOT EXISTS exercise_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      exercise_type TEXT NOT NULL,
+      sequence_data JSONB NOT NULL,
+      metadata JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    -- Index for faster queries by exercise type
+    CREATE INDEX IF NOT EXISTS idx_exercise_templates_type ON exercise_templates(exercise_type);
+
+    -- Enable RLS
+    ALTER TABLE exercise_templates ENABLE ROW LEVEL SECURITY;
+
+    -- Drop existing policy if it exists, then create new one
+    DROP POLICY IF EXISTS "Allow anonymous access" ON exercise_templates;
+    CREATE POLICY "Allow anonymous access" ON exercise_templates
+      FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  `;
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/exec_sql`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ query: sql }),
+    });
+
+    // If exec_sql RPC doesn't exist, try the raw SQL endpoint
+    if (!response.ok) {
+      // Use Supabase's SQL endpoint directly
+      const sqlResponse = await fetch(`${SUPABASE_URL}/rest/v1/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'Prefer': 'return=minimal',
+        },
+      });
+
+      // Return instructions if direct creation fails
+      return res.json({
+        success: false,
+        message: 'Please create the table manually in Supabase SQL Editor',
+        sql: sql.trim(),
+      });
+    }
+
+    res.json({ success: true, message: 'Table created successfully' });
+  } catch (err) {
+    console.error('Setup table error:', err);
+    res.json({
+      success: false,
+      message: 'Please create the table manually in Supabase SQL Editor',
+      sql: sql.trim(),
+    });
+  }
+});
+
+// Serve exercise POC from exercise-poc/ (separate mini-project)
+app.use('/exercise', express.static(path.join(__dirname, '..', 'exercise-poc')));
+
 // ── Anthropic client ──────────────────────────────────────────────────────────
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -254,6 +344,7 @@ function handleDeepgram(clientWs) {
 const PORT = parseInt(process.env.PORT || '3000', 10);
 server.listen(PORT, async () => {
   console.log(`MayaMind POC → http://localhost:${PORT}`);
+  console.log(`  Exercise POC → http://localhost:${PORT}/exercise`);
   console.log(`  Model:  claude-sonnet-4-6`);
   console.log(`  Voice:  ${process.env.ELEVENLABS_VOICE_ID}`);
   await verifyDeepgramKey();

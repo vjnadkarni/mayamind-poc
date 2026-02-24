@@ -1,6 +1,6 @@
 # MayaMind — Your Ally at Home
 
-**Executive Summary | Version 1.01 | February 2026 | CONFIDENTIAL**
+**Executive Summary | Version 1.02 | February 2026 | CONFIDENTIAL**
 
 ---
 
@@ -16,7 +16,7 @@ MayaMind is an AI-powered companion and wellness platform for seniors, delivered
 Emotionally responsive 3D avatar rendered on-device using TalkingHead (open-source ThreeJS/WebGL) that adapts to mood, remembers life stories, and provides daily engagement through personalized content. Emotion detection is performed through real-time analysis of the user's transcribed speech by the LLM — no separate emotion detection service required.
 
 **Exercise Coach**
-iPad's front camera creates a "smart mirror" — seniors see themselves exercising with real-time form overlay powered by MediaPipe pose estimation running entirely on-device. Optional record-and-review shows progress over time.
+iPad's front camera creates a "smart mirror" — seniors see themselves exercising with real-time form overlay powered by MediaPipe pose estimation running entirely on-device. The avatar guides exercise sessions conversationally: users can either choose specific exercises ("I'd like to do squats") or let the avatar lead them through a personalized sequence adapted to their fitness level. Rep counting, form feedback, and encouragement happen in real-time through natural voice interaction. Optional record-and-review shows progress over time.
 
 **Family and Friends Bridge**
 Automated daily summaries keep family members and friends connected to their loved one's activities, mood, and exercise progress. Authorized professionals (coaches, trainers, physicians) can access workout data and trends through a dedicated web portal.
@@ -69,10 +69,11 @@ By default, all user data is stored locally on the iPad — visible only to the 
 - **Only solution combining emotionally responsive avatar + camera-based exercise coaching.** ElliQ can't coach exercises; Meela has no visual presence.
 - **Single-device simplicity:** One iPad replaces a three-device stack. 10-minute setup. No technical skill required from the senior.
 - **Smart mirror exercise coaching:** Seniors see themselves on the iPad with real-time form overlay and can review recordings side-by-side with correct technique. No competitor offers this.
+- **Voice-driven workout sessions:** The avatar converses naturally to guide exercise sessions — asking what the user wants to do, counting reps aloud, providing encouragement, and checking in when the user pauses. Users can choose specific exercises or let the avatar lead a personalized routine.
 - **Privacy-first with opt-in sharing:** Exercise video processed on-device. Never transmitted. Structured data shared to the cloud only when the senior opts in.
 - **Low cloud costs:** On-device avatar rendering (TalkingHead) and speech recognition (Apple Speech) eliminate the two most expensive cloud dependencies. Only LLM and TTS incur per-use charges.
 - **Multi-stakeholder value:** Companionship for the senior, peace of mind for family and friends, wellness outcomes for the facility or state program, actionable data for authorized professionals.
-- **Proven technology:** Core conversation loop (speech recognition → LLM → TTS → avatar lip-sync) validated in a working proof-of-concept with sub-3-second response latency.
+- **Proven technology:** Core conversation loop (speech recognition → LLM → TTS → avatar lip-sync) validated in a working proof-of-concept with sub-3-second response latency. Exercise detection with voice-driven coaching validated in a working prototype.
 
 ## GO-TO-MARKET
 

@@ -2,7 +2,7 @@
 
 **Market Requirements Document (MRD)**
 
-**Version 1.02 | February 2026 | CONFIDENTIAL**
+**Version 1.03 | February 2026 | CONFIDENTIAL**
 
 ---
 
@@ -171,6 +171,7 @@ Strategic value: Beyond direct revenue, RHT contracts provide government validat
 
 - **Visually present, emotionally responsive 3D avatar.** Unlike ElliQ (lamp-shaped robot), Meela (phone call), or Alexa (speaker), MayaMind presents a human-like 3D face rendered on-device that adapts in real-time to the user's emotional state based on analysis of their spoken words.
 - **Integrated exercise coaching with pose estimation.** No competitor in the senior companion space offers camera-based exercise guidance with rep counting and form feedback.
+- **Voice-driven workout sessions.** The avatar guides exercise sessions through natural conversation — asking what the user wants to do, counting reps aloud, providing encouragement, and checking in when the user pauses. Users can choose specific exercises or let the avatar lead a personalized routine adapted to their fitness level.
 - **On-device processing for privacy.** Avatar rendering (TalkingHead), speech recognition (Apple Speech), and pose estimation (MediaPipe) all run locally on the iPad. Exercise video never leaves the home. Cloud storage of structured data is opt-in only.
 - **Single-device simplicity.** The entire system is one iPad ($349). No external camera, no separate display, no cabling. 10-minute setup.
 - **Low cloud costs.** On-device avatar rendering and speech recognition eliminate the two most expensive cloud dependencies that competitors face. Only LLM inference and text-to-speech require cloud APIs.
@@ -302,6 +303,7 @@ RHT channel narrative: "Your state received $200 million in RHT funding to impro
 | v1.00 | February 14, 2026 | Vijay / Claude | Initial draft |
 | v1.01 | February 15, 2026 | Vijay / Claude | Added RHT Program as strategic market segment (Sec 2.5, 4.4, 7.2, 8.3–8.4). Revised SOM upward. Added rural persona, broadband risk, RHT pricing model, and RHT-specific go-to-market phases. |
 | v1.02 | February 19, 2026 | Vijay / Claude | Replaced Mac Mini with iPad ($349) throughout. Updated technology stack: TalkingHead (on-device avatar), Apple Speech (on-device STT), ElevenLabs (TTS), text-based emotion detection via Claude (replaces Hume AI). Added RBAC roles (User, Administrator, Authorized Professional). Added Supabase opt-in cloud storage. Renamed Family Bridge to Family and Friends Bridge. Added Dr. Chen persona. Updated pricing to reflect lower cloud costs. Removed Ollama/local LLM references. |
+| v1.03 | February 23, 2026 | Vijay / Claude | Added voice-driven workout sessions to competitive differentiation (Sec 5.2). Documented dual-mode exercise selection: user choice or avatar-guided sequence. Reflects validated exercise detection prototype with voice workflow. |
 
 ---
 

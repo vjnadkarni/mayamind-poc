@@ -2,7 +2,7 @@
 
 **Product Requirements Document (PRD)**
 
-**Version 1.04 | February 2026 | CONFIDENTIAL**
+**Version 1.05 | February 2026 | CONFIDENTIAL**
 
 ---
 
@@ -143,11 +143,13 @@ The Exercise Coach runs entirely on-device using the iPad's A14 Bionic Neural En
 | ID | Feature | Description | Pri | Phase |
 |----|---------|-------------|-----|-------|
 | EL-01 | Senior-appropriate exercise library | Curated library of exercises suitable for seniors: chair exercises, standing balance, gentle squats, wall push-ups, arm raises, seated stretches, yoga poses, and walking-in-place routines. | P0 | Pilot |
-| EL-02 | Guided exercise sessions | The avatar guides user through complete exercise sessions, demonstrating movements, counting reps, and providing encouragement. During exercise, the iPad switches to mirror view (EC-07) showing the senior's live camera feed with form overlay. | P0 | Pilot |
+| EL-02 | Guided exercise sessions | The avatar guides user through complete exercise sessions using voice interaction (see EL-07, EL-08). During exercise, the iPad switches to mirror view (EC-07) showing the senior's live camera feed with form overlay. The avatar counts reps aloud and provides verbal encouragement. | P0 | Pilot |
 | EL-03 | Adaptive difficulty | Adjust exercise difficulty based on performance history, energy level, and self-reported fitness level. | P1 | V1 Launch |
 | EL-04 | Progress tracking | Track exercise frequency, duration, rep counts, and form improvement over time. Present progress in a motivating way. Data stored locally on iPad; synced to Supabase if cloud storage is opted in. | P0 | Pilot |
 | EL-05 | Warm-up and cool-down | Include appropriate warm-up and cool-down routines before and after exercise sessions. | P1 | V1 Launch |
 | EL-06 | Custom exercise programs | Allow authorized professionals (physical therapists, trainers) to prescribe specific exercise routines that the system guides the user through. Combined with record-and-review (EC-08), professionals can assess patient form remotely via shared recordings (with consent). | P2 | Post-launch |
+| EL-07 | Voice-driven exercise selection | At session start, the avatar conversationally asks "Would you like to exercise today?" and offers available exercises. The user verbally selects an exercise (e.g., "squats" or "push-ups"), and the avatar confirms and begins counting reps. After 5 seconds of inactivity, the avatar asks "Are you done?" — if yes, reports the rep count and offers another exercise; if no, resumes counting. Natural voice interaction throughout. | P0 | Pilot |
+| EL-08 | Dual-mode session start | Users choose between two modes when starting an exercise session: (1) **User Selection Mode** — user verbally chooses which exercise(s) to perform (EL-07 behavior); (2) **Guided Sequence Mode** — avatar leads the user through a curated sequence of exercises adapted to their fitness level, goals, and preferences. In guided mode, the avatar selects exercises, sets rep targets, manages rest periods, and transitions smoothly between exercises. | P1 | V1 Launch |
 
 ### 3.3 Safety Considerations for Exercise
 
@@ -517,6 +519,7 @@ The pilot program will generate actual per-user cost data across these services,
 | v1.02 | Feb 17, 2026 | Vijay / Claude | Major architecture change: iPad-only (single device). Removed Mac Mini, external camera, and local LLM. 65% hardware cost reduction. App platform changed from Python to Swift/SwiftUI. Added cloud pricing analysis section. Pilot budget reduced. |
 | v1.03 | Feb 17, 2026 | Vijay / Claude | Added mirror view features enabled by iPad-only architecture: EC-07 (real-time form overlay on live camera feed, P0) and EC-08 (record-and-review with side-by-side comparison, P1). Updated privacy requirements for local recording. Added recording privacy to safety considerations. Documented mirror view as emergent advantage in ADR. |
 | v1.04 | Feb 19, 2026 | Vijay / Claude | Major technology stack update: Replaced HeyGen LiveAvatar with TalkingHead (on-device, open-source). Replaced Hume AI emotion detection with text-based detection via Claude. Replaced Deepgram STT with Apple Speech (on-device). Added ElevenLabs as TTS. Added RBAC (Section 6) with User, Administrator, Authorized Professional, and Family and Friends roles. Added Supabase opt-in cloud storage (Section 7). Added report definitions for Authorized Professionals (Section 8). Renamed Family Bridge to Family and Friends Bridge. Updated privacy requirements for opt-in cloud model. Reduced pilot budget estimate. Updated cloud cost projections. POC validated sub-3-second conversation latency. |
+| v1.05 | Feb 23, 2026 | Vijay / Claude | Added voice-driven exercise workflow features: EL-07 (voice-driven exercise selection, P0) enables conversational exercise sessions where the avatar asks "Would you like to exercise?", offers exercises, counts reps aloud, detects inactivity, and manages session flow through voice. EL-08 (dual-mode session start, P1) lets users choose between selecting specific exercises or being guided through a curated sequence. Updated EL-02 to reference voice workflow. Validated in working exercise detection prototype with Web Speech API integration. |
 
 ---
 
