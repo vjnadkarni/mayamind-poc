@@ -7,19 +7,19 @@ MayaMind is an AI-powered companion and wellness platform for seniors, delivered
 
 The **proof-of-concept** (tagged `v0.1.0`) validated the core conversation loop: User speaks → speech recognized → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. End-to-end latency: sub-3 seconds. Supports barge-in and mood-aware responses.
 
-The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, and future features (health monitoring, family connection) into a single iPad-optimized interface.
+The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, and future features (health monitoring, family connection) into a single iPad-optimized interface. The conversation pipeline now includes Claude's native web search tool for real-time information (weather, news, sports scores).
 
 ## Product Documents
 
 All product documents live in `docs/` as Markdown:
 
-- `docs/MayaMind_Executive_Summary.md` — v1.02, high-level overview
-- `docs/MayaMind_MRD_v1.03.md` — Market Requirements Document
-- `docs/MayaMind_PRD_v1.05.md` — Product Requirements Document (authoritative spec)
+- `docs/MayaMind_Executive_Summary.md` — v1.03, high-level overview
+- `docs/MayaMind_MRD_v1.04.md` — Market Requirements Document
+- `docs/MayaMind_PRD_v1.06.md` — Product Requirements Document (authoritative spec)
 
 Original `.docx` versions are also in `docs/` for reference but are no longer maintained.
 
-## Production Technology Stack (from PRD v1.04)
+## Production Technology Stack (from PRD v1.06)
 
 | Component | Technology | Where It Runs | Cost |
 |-----------|-----------|---------------|------|
@@ -27,6 +27,7 @@ Original `.docx` versions are also in `docs/` for reference but are no longer ma
 | Speech Recognition | Apple Speech framework | On-device | Free (bundled with iPadOS) |
 | Pose Estimation | MediaPipe | On-device (Neural Engine) | Free |
 | LLM | Claude API (Anthropic) | Cloud | Per-token |
+| Web Search | Claude native web search (`web_search_20250305`) | Cloud (via Claude API) | $0.01/search |
 | Text-to-Speech | ElevenLabs | Cloud | Per-character |
 | Emotion Detection | Text-based via Claude `[MOOD:xxx]` tags | Cloud (piggybacked on LLM) | Free (included in LLM call) |
 | Local Database | SQLite | On-device | Free |
@@ -34,7 +35,7 @@ Original `.docx` versions are also in `docs/` for reference but are no longer ma
 | Web Portals | React + REST API | Cloud | — |
 | Device Management | Apple Business Manager + MDM | Cloud | — |
 
-Key principle: **Only two cloud APIs incur per-use charges** (Claude and ElevenLabs). Everything else is on-device or free.
+Key principle: **Only two cloud APIs incur per-use charges** (Claude, including web search, and ElevenLabs). Everything else is on-device or free.
 
 ## RBAC Roles
 
@@ -60,9 +61,9 @@ mayamind-poc/
 ├── MayaMind_TalkingHead_POC_Prompt.md   # Original POC prompt
 ├── setup.sh                # Downloads TalkingHead assets from GitHub
 ├── docs/
-│   ├── MayaMind_Executive_Summary.md    # v1.02
-│   ├── MayaMind_MRD_v1.03.md
-│   ├── MayaMind_PRD_v1.05.md
+│   ├── MayaMind_Executive_Summary.md    # v1.03
+│   ├── MayaMind_MRD_v1.04.md
+│   ├── MayaMind_PRD_v1.06.md
 │   ├── Personalization_Architecture_v1.0.md   # Personalization system design
 │   └── *.docx                           # Original versions (not maintained)
 ├── server/
@@ -152,9 +153,12 @@ node server/server.js
 
 **Claude API:**
 - Model: `claude-sonnet-4-6` (no date suffix)
-- `max_tokens: 300`, `stream: true` — SSE streaming
+- `max_tokens: 500`, `stream: true` — SSE streaming
 - Do NOT enable extended thinking
-- System prompt: Maya is a warm wellness companion; short sentences; no markdown; `[MOOD:xxx]` tag at start of each response
+- System prompt: Maya is a warm wellness companion; short sentences; no markdown/symbols; `[MOOD:xxx]` tag at start of each response
+- System prompt is **dynamic** — `buildSystemPrompt(timezone)` injects current date/time per request
+- Web search tool: `{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }` — Claude searches internally via Brave Search ($0.01/search)
+- `stream.on('text', ...)` naturally skips tool_use/tool_result blocks — no client parsing changes needed for web search
 
 **Deepgram WebSocket Proxy (`/ws/deepgram`):**
 - Config: `{ model: "nova-2", language: "en", smart_format: true, interim_results: true, endpointing: 500, utterance_end_ms: 1500 }`
@@ -169,7 +173,8 @@ node server/server.js
 - Valid moods (TalkingHead's exact 8): `neutral`, `happy`, `angry`, `sad`, `fear`, `disgust`, `love`, `sleep`
 - "surprised" is NOT valid — throws "Unknown mood." error
 - Claude detects emotion from transcript, tags response with `[MOOD:xxx]`
-- Frontend parses tag, calls `head.setMood()`, adjusts ElevenLabs voice settings per mood
+- Frontend parses tag at start of response, calls `head.setMood()`, adjusts ElevenLabs voice settings per mood
+- **Web search multi-block fix:** Web search causes Claude to produce multiple text blocks, each potentially starting with `[MOOD:xxx]`. Client strips ALL `[MOOD:xxx]` tags globally (not just the first one) to prevent mood tags from being spoken aloud
 
 **Barge-In:**
 - Mic stays open during avatar speech; Deepgram transcript triggers `bargeIn()`
@@ -327,6 +332,32 @@ Two extraction modes:
 **Input Serialization:**
 - `processInput()` wrapper prevents overlapping `handleUserInput` calls
 - Uses `processingInput` flag and `pendingInput` queue
+
+## Web Search Integration
+
+Maya can answer questions about current events, weather, news, sports scores, and other real-time information using Claude's native web search tool.
+
+### How It Works
+
+- Server-side connector — Anthropic executes searches internally via Brave Search
+- No additional API keys required — billed at $0.01/search through existing Claude API key
+- Tool config: `{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }` — limits to 2 searches per turn
+- `stream.on('text', ...)` handler naturally skips `server_tool_use` and `web_search_tool_result` content blocks — no client-side parsing changes needed
+- System prompt instructs Claude to present search results naturally — no URLs, no "I searched the web" phrasing
+
+### Timezone Awareness
+
+- System prompt is generated dynamically via `buildSystemPrompt(timezone)` on each request
+- Client sends `Intl.DateTimeFormat().resolvedOptions().timeZone` with every `/api/chat` request
+- Server formats current date/time in the user's timezone and injects into the system prompt
+- Enables correct responses for "today", "tomorrow", "this week", etc.
+
+### TTS Text Sanitization
+
+- `sanitizeForTTS()` function in `server/server.js` runs on all text before sending to ElevenLabs
+- Converts symbols to spoken words: `°F` → "degrees Fahrenheit", `"` → "inches", `%` → "percent", `mph` → "miles per hour", etc.
+- Also strips any leaked `[MOOD:xxx]` tags as a safety net
+- System prompt additionally instructs Claude to avoid symbols and spell them out
 
 ## GitHub
 

@@ -570,7 +570,10 @@ async function runConversation(userText) {
     const res = await fetch(CHAT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: conversationHistory }),
+      body: JSON.stringify({
+        messages: conversationHistory,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
       signal: abort.signal,
     });
     if (!res.ok) throw new Error(`Chat HTTP ${res.status}`);
@@ -615,6 +618,10 @@ async function runConversation(userText) {
           }
           if (!moodParsed) continue; // wait for more tokens
         }
+
+        // Strip any additional [MOOD:xxx] tags (web search may produce multiple text blocks)
+        buffer = buffer.replace(/\[MOOD:\w+\]\s*/g, '');
+        fullResponse = fullResponse.replace(/\[MOOD:\w+\]\s*/g, '');
 
         // Flush complete sentence to TTS as soon as it's ready
         const m = buffer.match(/[.!?]\s/);

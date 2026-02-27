@@ -122,7 +122,20 @@ app.use('/exercise', express.static(path.join(__dirname, '..', 'exercise-poc')))
 // ── Anthropic client ──────────────────────────────────────────────────────────
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `You are Maya, a warm and caring wellness companion for seniors. You speak in short, clear sentences. Keep responses to 2-3 sentences maximum — this is a spoken conversation, not written text. Be encouraging, patient, and positive. Never use markdown, bullet points, or special formatting. Speak naturally as if talking to a friend.
+function buildSystemPrompt(timezone) {
+  const tz = timezone || 'America/Los_Angeles';
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: tz,
+  });
+  const timeStr = now.toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit', timeZone: tz,
+  });
+
+  return `You are Maya, a warm and caring wellness companion for seniors. You speak in short, clear sentences. Keep responses to 2-3 sentences maximum — this is a spoken conversation, not written text. Be encouraging, patient, and positive. Never use markdown, bullet points, or special formatting — your words will be spoken aloud by a text-to-speech engine, so write only plain spoken words. Never use symbols like °, ", %, or other special characters — always spell them out (for example say "degrees" instead of °, "percent" instead of %, "inches" instead of "). Speak naturally as if talking to a friend.
+
+Current date and time: ${dateStr}, ${timeStr} (${tz}).
+Use this to answer questions about "today", "tomorrow", "this week", etc.
 
 IMPORTANT: Begin every response with a mood tag [MOOD:xxx] where xxx is one of: neutral, happy, angry, sad, fear, disgust, love, sleep.
 
@@ -136,11 +149,14 @@ Choose the mood that best serves the user emotionally:
 - User seems tired or sleepy → [MOOD:happy] (gently encouraging)
 - Default or unclear → [MOOD:neutral]
 
-The tag must be the very first text, followed by a space, then your spoken words. Example: [MOOD:happy] That sounds wonderful!`;
+The tag must be the very first text, followed by a space, then your spoken words. Do NOT include the mood tag anywhere else in your response — only at the very beginning. Example: [MOOD:happy] That sounds wonderful!
+
+When the user asks about current events, weather, news, sports scores, recent happenings, or anything that requires up-to-date information, use your web search tool to find accurate answers. Present search results naturally in conversation — never mention URLs, sources, or that you "searched the web." Just share the information as if you know it. Keep your answer to 2-3 sentences even when using search results.`;
+}
 
 // ── POST /api/chat — Anthropic streaming proxy (SSE) ─────────────────────────
 app.post('/api/chat', async (req, res) => {
-  const { messages } = req.body;
+  const { messages, timezone } = req.body;
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array is required' });
@@ -154,8 +170,11 @@ app.post('/api/chat', async (req, res) => {
   try {
     const stream = anthropic.messages.stream({
       model: 'claude-sonnet-4-6',
-      max_tokens: 300,
-      system: SYSTEM_PROMPT,
+      max_tokens: 500,
+      system: buildSystemPrompt(timezone),
+      tools: [
+        { type: 'web_search_20250305', name: 'web_search', max_uses: 2 }
+      ],
       messages,
     });
 
@@ -300,6 +319,26 @@ app.post('/api/extract-personality', async (req, res) => {
   }
 });
 
+// ── TTS text sanitization ────────────────────────────────────────────────────
+// Replace symbols that TTS engines mispronounce with spoken equivalents
+function sanitizeForTTS(text) {
+  return text
+    .replace(/°F/g, ' degrees Fahrenheit')
+    .replace(/°C/g, ' degrees Celsius')
+    .replace(/°/g, ' degrees')
+    .replace(/(\d)"/g, '$1 inches')
+    .replace(/(\d)'/g, '$1 feet')
+    .replace(/(\d)%/g, '$1 percent')
+    .replace(/(\d)\s*mph/gi, '$1 miles per hour')
+    .replace(/(\d)\s*km\/h/gi, '$1 kilometers per hour')
+    .replace(/&/g, ' and ')
+    .replace(/\+/g, ' plus ')
+    .replace(/\bvs\.?\b/gi, 'versus')
+    .replace(/\[MOOD:\w+\]\s*/g, '')     // strip any leaked mood tags
+    .replace(/\s{2,}/g, ' ')             // collapse double spaces
+    .trim();
+}
+
 // ── POST /api/tts — ElevenLabs with-timestamps proxy ─────────────────────────
 // Returns JSON: { audio_base64, alignment, normalized_alignment }
 // The browser uses audio_base64 + alignment to call head.speakAudio()
@@ -322,7 +361,7 @@ app.post('/api/tts', async (req, res) => {
         'xi-api-key': process.env.ELEVENLABS_API_KEY,
       },
       body: JSON.stringify({
-        text: text.trim(),
+        text: sanitizeForTTS(text),
         model_id: 'eleven_turbo_v2_5',
         voice_settings: vs,
       }),

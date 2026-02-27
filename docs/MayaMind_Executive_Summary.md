@@ -1,6 +1,6 @@
 # MayaMind — Your Ally at Home
 
-**Executive Summary | Version 1.02 | February 2026 | CONFIDENTIAL**
+**Executive Summary | Version 1.03 | February 2026 | CONFIDENTIAL**
 
 ---
 
@@ -13,7 +13,7 @@ One in three U.S. seniors report feeling lonely, and only 28% of adults 75+ meet
 MayaMind is an AI-powered companion and wellness platform for seniors, delivered entirely through a single iPad. It combines a lifelike, emotionally responsive 3D AI avatar with camera-based exercise coaching — two capabilities no competitor offers together. The iPad's front camera doubles as a "smart mirror," showing seniors their own form with real-time coaching overlay. Pose estimation runs on-device; video never leaves the home.
 
 **AI Companion**
-Emotionally responsive 3D avatar rendered on-device using TalkingHead (open-source ThreeJS/WebGL) that adapts to mood, remembers life stories, and provides daily engagement through personalized content. Emotion detection is performed through real-time analysis of the user's transcribed speech by the LLM — no separate emotion detection service required.
+Emotionally responsive 3D avatar rendered on-device using TalkingHead (open-source ThreeJS/WebGL) that adapts to mood, remembers life stories, and provides daily engagement through personalized content. Emotion detection is performed through real-time analysis of the user's transcribed speech by the LLM — no separate emotion detection service required. The companion can answer questions about current events, weather, news, and sports scores using real-time web search, and learns the user's preferences over time through a progressive, consent-based personalization system.
 
 **Exercise Coach**
 iPad's front camera creates a "smart mirror" — seniors see themselves exercising with real-time form overlay powered by MediaPipe pose estimation running entirely on-device. The avatar guides exercise sessions conversationally: users can either choose specific exercises ("I'd like to do squats") or let the avatar lead them through a personalized sequence adapted to their fitness level. Rep counting, form feedback, and encouragement happen in real-time through natural voice interaction. Optional record-and-review shows progress over time.
@@ -31,11 +31,13 @@ MayaMind's architecture maximizes on-device processing, keeping cloud costs low 
 | Speech Recognition | Apple Speech Framework | On-device |
 | Pose Estimation | MediaPipe | On-device (Neural Engine) |
 | LLM | Claude API (Anthropic) | Cloud |
+| Web Search | Claude native search (Brave) | Cloud (via Claude API) |
 | Text-to-Speech | ElevenLabs | Cloud |
 | Emotion Detection | Text-based analysis via Claude | Cloud (piggybacked on LLM call) |
+| Personalization | SQLite (sql.js) with consent model | On-device |
 | Data Storage | Local SQLite + Supabase (opt-in) | On-device + Cloud |
 
-Three of six components run entirely on-device with zero API cost. Emotion detection is piggybacked on the LLM call at no additional cost. Only two cloud APIs (Claude and ElevenLabs) incur per-use charges. The core conversation loop — speech recognition, LLM response, text-to-speech, and avatar lip-sync — has been validated in a working proof-of-concept with sub-3-second end-to-end response latency.
+Three of seven components run entirely on-device with zero API cost. Emotion detection and web search are piggybacked on the Claude API at minimal additional cost ($0.01/search). Only two cloud APIs (Claude and ElevenLabs) incur per-use charges. The core conversation loop — speech recognition, LLM response, text-to-speech, and avatar lip-sync — has been validated in a working proof-of-concept with sub-3-second end-to-end response latency. Personalization, web search, and timezone-aware responses have all been validated.
 
 ## ONE DEVICE. ZERO COMPLEXITY.
 
@@ -73,7 +75,9 @@ By default, all user data is stored locally on the iPad — visible only to the 
 - **Privacy-first with opt-in sharing:** Exercise video processed on-device. Never transmitted. Structured data shared to the cloud only when the senior opts in.
 - **Low cloud costs:** On-device avatar rendering (TalkingHead) and speech recognition (Apple Speech) eliminate the two most expensive cloud dependencies. Only LLM and TTS incur per-use charges.
 - **Multi-stakeholder value:** Companionship for the senior, peace of mind for family and friends, wellness outcomes for the facility or state program, actionable data for authorized professionals.
-- **Proven technology:** Core conversation loop (speech recognition → LLM → TTS → avatar lip-sync) validated in a working proof-of-concept with sub-3-second response latency. Exercise detection with voice-driven coaching validated in a working prototype.
+- **Real-time information:** The companion can answer questions about weather, news, sports scores, and current events through integrated web search — making it genuinely useful for daily information needs, not just conversation.
+- **Progressive personalization:** A three-tier, consent-based system where the companion learns the user's name, preferences, interests, and communication style over time — with full transparency and user control over what is remembered.
+- **Proven technology:** Core conversation loop (speech recognition → LLM → TTS → avatar lip-sync) validated in a working proof-of-concept with sub-3-second response latency. Exercise detection with voice-driven coaching validated in a working prototype. Personalization, web search, and timezone-aware responses validated end-to-end.
 
 ## GO-TO-MARKET
 

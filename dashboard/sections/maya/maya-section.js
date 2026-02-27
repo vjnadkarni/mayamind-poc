@@ -1154,7 +1154,10 @@ export class MayaSection {
       const res = await fetch(CHAT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: this.conversationHistory }),
+        body: JSON.stringify({
+          messages: this.conversationHistory,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
         signal: abort.signal,
       });
       if (!res.ok) throw new Error(`Chat HTTP ${res.status}`);
@@ -1200,6 +1203,10 @@ export class MayaSection {
             }
             if (!moodParsed) continue;
           }
+
+          // Strip any additional [MOOD:xxx] tags (web search may produce multiple text blocks)
+          buffer = buffer.replace(/\[MOOD:\w+\]\s*/g, '');
+          fullResponse = fullResponse.replace(/\[MOOD:\w+\]\s*/g, '');
 
           // Flush complete sentences to TTS
           const m = buffer.match(/[.!?]\s/);
