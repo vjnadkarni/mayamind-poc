@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>MayaMind</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Dashboard Grid -->
+  <div id="dashboard" class="dashboard">
+    <div class="dashboard-header">
+      <h1>MayaMind</h1>
+      <p class="subtitle">Your wellness companion</p>
+    </div>
+
+    <div class="dashboard-grid">
+      <!-- Maya Conversation Block -->
+      <div class="dashboard-block" data-section="maya">
+        <div class="block-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="8" r="5"/>
+            <path d="M3 21v-2a7 7 0 0 1 7-7h4a7 7 0 0 1 7 7v2"/>
+          </svg>
+        </div>
+        <div class="block-label">Maya</div>
+        <div class="block-description">Conversation</div>
+        <div class="block-status" id="maya-status"></div>
+      </div>
+
+      <!-- Exercise Guidance Block -->
+      <div class="dashboard-block" data-section="exercise">
+        <div class="block-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6.5 6.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>
+            <path d="M2 21v-2a3 3 0 0 1 3-3h3"/>
+            <path d="M14 8h8M14 12h8M14 16h8"/>
+          </svg>
+        </div>
+        <div class="block-label">Exercise</div>
+        <div class="block-description">Guidance</div>
+        <div class="block-status" id="exercise-status"></div>
+      </div>
+
+      <!-- Health Monitoring Block (Placeholder) -->
+      <div class="dashboard-block placeholder" data-section="health">
+        <div class="block-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+        </div>
+        <div class="block-label">Health</div>
+        <div class="block-description">Monitoring</div>
+        <div class="block-badge">Coming Soon</div>
+      </div>
+
+      <!-- Connect with Loved Ones Block (Placeholder) -->
+      <div class="dashboard-block placeholder" data-section="connect">
+        <div class="block-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </div>
+        <div class="block-label">Connect</div>
+        <div class="block-description">Loved Ones</div>
+        <div class="block-badge">Coming Soon</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section Containers (hidden by default) -->
+  <div id="section-container" class="section-container hidden">
+    <!-- Dashboard Button (always visible in sections) -->
+    <button id="dashboard-btn" class="dashboard-btn" title="Back to Dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="7" height="7"/>
+        <rect x="14" y="3" width="7" height="7"/>
+        <rect x="3" y="14" width="7" height="7"/>
+        <rect x="14" y="14" width="7" height="7"/>
+      </svg>
+      <span class="dashboard-btn-label">Dashboard</span>
+    </button>
+
+    <!-- Maya Section -->
+    <div id="maya-section" class="section hidden">
+      <div class="section-header">
+        <h2>Maya Conversation</h2>
+        <div class="section-status" id="maya-section-status"></div>
+      </div>
+      <div id="maya-content" class="section-content">
+        <!-- TalkingHead avatar will be mounted here -->
+      </div>
+    </div>
+
+    <!-- Exercise Section -->
+    <div id="exercise-section" class="section hidden">
+      <div class="section-header">
+        <h2>Exercise Guidance</h2>
+        <div class="section-status" id="exercise-section-status"></div>
+      </div>
+      <div id="exercise-content" class="section-content">
+        <!-- Exercise POC will be mounted here -->
+      </div>
+    </div>
+
+    <!-- Health Section (Placeholder) -->
+    <div id="health-section" class="section hidden">
+      <div class="section-header">
+        <h2>Health Monitoring</h2>
+      </div>
+      <div class="section-content placeholder-content">
+        <div class="placeholder-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+        </div>
+        <h3>Coming Soon</h3>
+        <p>Connect your Apple Watch to track heart rate, steps, and other health metrics.</p>
+      </div>
+    </div>
+
+    <!-- Connect Section (Placeholder) -->
+    <div id="connect-section" class="section hidden">
+      <div class="section-header">
+        <h2>Connect with Loved Ones</h2>
+      </div>
+      <div class="section-content placeholder-content">
+        <div class="placeholder-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </div>
+        <h3>Coming Soon</h3>
+        <p>Stay connected with family and friends through WhatsApp messaging.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loading-spinner"></div>
+    <p id="loading-text">Loading...</p>
+  </div>
+
+  <!-- Import map for TalkingHead dependencies (three, dompurify, marked).
+       Versions must match what TalkingHead was built against. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "dompurify": "https://cdn.jsdelivr.net/npm/dompurify@3.1.7/+esm",
+      "marked": "https://cdn.jsdelivr.net/npm/marked@14.1.3/+esm"
+    }
+  }
+  </script>
+
+  <!-- sql.js for personalization database -->
+  <script src="lib/sql-wasm.js"></script>
+
+  <!-- Scripts -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

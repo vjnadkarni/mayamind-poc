@@ -29,7 +29,8 @@ export const PUSHUP_THRESHOLDS = {
   ascendingElbowMin: 118,   // Elbow rises above this = ascending (was 110)
 
   // Timing thresholds (ms)
-  minDescentDuration: 200,  // Must be descending for at least this long (filters floor entry/exit)
+  minDescentDuration: 300,  // Must be descending for at least this long (filters floor entry/exit)
+  minBottomDuration: 150,   // Must be at bottom for at least this long (filters standing up motion)
   repCooldown: 400,         // Minimum time between rep completions
 
   // Minimum range of motion
@@ -64,6 +65,7 @@ export class PushupDetector {
 
     // Timing for anti-flicker
     this.descentStartTime = null;
+    this.bottomStartTime = null;
     this.lastRepCompletionTime = null;
     this.reachedBottom = false;
 
@@ -150,11 +152,13 @@ export class PushupDetector {
         // Check if at bottom
         if (elbowAngle < t.bottomElbowMax) {
           this.state = PushupState.BOTTOM;
+          this.bottomStartTime = timestamp;
           this.reachedBottom = true;
         } else if (elbowAngle > t.plankElbowMin) {
           // Went back to plank without reaching bottom - abort
           this.state = PushupState.PLANK;
           this.descentStartTime = null;
+          this.bottomStartTime = null;
           this.currentRepMaxElbow = elbowAngle;
         }
         break;
@@ -174,6 +178,7 @@ export class PushupDetector {
         if (elbowAngle > t.plankElbowMin) {
           // Check timing and ROM constraints
           const descentDuration = this.descentStartTime ? timestamp - this.descentStartTime : 0;
+          const bottomDuration = this.bottomStartTime ? timestamp - this.bottomStartTime : 0;
           const timeSinceLastRep = this.lastRepCompletionTime
             ? timestamp - this.lastRepCompletionTime
             : Infinity;
@@ -181,6 +186,7 @@ export class PushupDetector {
 
           const validRep = this.reachedBottom &&
                           descentDuration >= t.minDescentDuration &&
+                          bottomDuration >= t.minBottomDuration &&
                           timeSinceLastRep >= t.repCooldown &&
                           rom >= t.minROM;
 
@@ -190,12 +196,16 @@ export class PushupDetector {
 
           this.state = PushupState.PLANK;
           this.descentStartTime = null;
+          this.bottomStartTime = null;
           this.reachedBottom = false;
           this.currentRepMaxElbow = elbowAngle;
           this.currentRepMinElbow = 180;
         } else if (elbowAngle < t.bottomElbowMax) {
           // Going back down
           this.state = PushupState.BOTTOM;
+          if (!this.bottomStartTime) {
+            this.bottomStartTime = timestamp;
+          }
         }
         break;
     }
@@ -275,6 +285,7 @@ export class PushupDetector {
     this.currentRepMaxElbow = 0;
     this.currentRepMinElbow = 180;
     this.descentStartTime = null;
+    this.bottomStartTime = null;
     this.lastRepCompletionTime = null;
     this.reachedBottom = false;
     this.repHistory = [];

@@ -1,0 +1,545 @@
+/* MayaMind Dashboard Styles - iPad Optimized */
+
+:root {
+  --bg-primary: #0a0a10;
+  --bg-secondary: #13131f;
+  --bg-card: #1a1a2e;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0b0;
+  --accent-blue: #4a9eff;
+  --accent-green: #4aff9f;
+  --accent-purple: #9f4aff;
+  --accent-pink: #ff4a9f;
+  --status-active: #4aff9f;
+  --status-paused: #ffb84a;
+  --status-inactive: #666680;
+  --tap-target-min: 88px; /* Apple HIG minimum for iPad */
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ── Dashboard Layout ─────────────────────────────────────────────────────── */
+
+.dashboard {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 40px;
+  gap: 32px;
+}
+
+.dashboard-header {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.dashboard-header h1 {
+  font-size: 48px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dashboard-header .subtitle {
+  font-size: 20px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+/* ── Dashboard Grid ───────────────────────────────────────────────────────── */
+
+.dashboard-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 24px;
+  max-width: 1000px;
+  max-height: 700px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.dashboard-block {
+  background: var(--bg-card);
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  position: relative;
+  min-height: var(--tap-target-min);
+  border: 2px solid transparent;
+}
+
+.dashboard-block:hover {
+  transform: scale(1.02);
+  box-shadow: 0 8px 32px rgba(74, 158, 255, 0.15);
+}
+
+.dashboard-block:active {
+  transform: scale(0.98);
+}
+
+/* Active session indicator */
+.dashboard-block.active {
+  border-color: var(--status-active);
+  box-shadow: 0 0 24px rgba(74, 255, 159, 0.2);
+}
+
+/* Paused session indicator */
+.dashboard-block.paused {
+  border-color: var(--status-paused);
+}
+
+.dashboard-block.paused::after {
+  content: 'Paused';
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--status-paused);
+  color: #000;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 12px;
+}
+
+/* Placeholder blocks */
+.dashboard-block.placeholder {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dashboard-block.placeholder:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.dashboard-block.placeholder:active {
+  transform: none;
+}
+
+.block-icon {
+  width: 80px;
+  height: 80px;
+  color: var(--accent-blue);
+}
+
+.dashboard-block[data-section="exercise"] .block-icon {
+  color: var(--accent-green);
+}
+
+.dashboard-block[data-section="health"] .block-icon {
+  color: var(--accent-pink);
+}
+
+.dashboard-block[data-section="connect"] .block-icon {
+  color: var(--accent-purple);
+}
+
+.block-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.block-label {
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.block-description {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.block-badge {
+  position: absolute;
+  bottom: 20px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 6px 16px;
+  border-radius: 16px;
+}
+
+.block-status {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px;
+  border-radius: 12px;
+  display: none;
+}
+
+.block-status.active {
+  display: block;
+  background: var(--status-active);
+  color: #000;
+}
+
+.block-status.paused {
+  display: block;
+  background: var(--status-paused);
+  color: #000;
+}
+
+/* ── Section Container ────────────────────────────────────────────────────── */
+
+.section-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  z-index: 100;
+}
+
+.section-container.hidden {
+  display: none;
+}
+
+.section {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.section.hidden {
+  display: none;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 80px 20px 24px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.section-header h2 {
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.section-status {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.section-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Dashboard Button ─────────────────────────────────────────────────────── */
+
+.dashboard-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  min-width: 88px;
+  height: 56px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  border: none;
+  border-radius: 28px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 200;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 16px rgba(74, 158, 255, 0.3);
+  font-family: inherit;
+}
+
+.dashboard-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 24px rgba(74, 158, 255, 0.4);
+}
+
+.dashboard-btn:active {
+  transform: scale(0.95);
+}
+
+.dashboard-btn svg {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.dashboard-btn-label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── Placeholder Section (Full Screen) ───────────────────────────────────── */
+
+.placeholder-section {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+  padding: 40px;
+  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+}
+
+.placeholder-section .placeholder-icon {
+  width: 120px;
+  height: 120px;
+  color: var(--accent-blue);
+  opacity: 0.7;
+  margin-bottom: 16px;
+}
+
+.placeholder-section .placeholder-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.placeholder-section .placeholder-title {
+  font-size: 36px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.placeholder-section .placeholder-description {
+  font-size: 20px;
+  color: var(--text-secondary);
+  max-width: 400px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.placeholder-section .placeholder-badge {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 20px;
+  margin: 8px 0 24px;
+}
+
+.placeholder-section .placeholder-features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.placeholder-section .feature-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 16px 24px;
+  border-radius: 12px;
+  min-width: 200px;
+}
+
+.placeholder-section .feature-icon {
+  font-size: 28px;
+}
+
+.placeholder-section .feature-text {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+/* Health section specific colors */
+#health-section .placeholder-section .placeholder-icon {
+  color: var(--accent-pink);
+}
+
+/* Connect section specific colors */
+#connect-section .placeholder-section .placeholder-icon {
+  color: var(--accent-purple);
+}
+
+/* ── Placeholder Content (Legacy) ────────────────────────────────────────── */
+
+.placeholder-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+  padding: 40px;
+}
+
+.placeholder-content .placeholder-icon {
+  width: 120px;
+  height: 120px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.placeholder-content .placeholder-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.placeholder-content h3 {
+  font-size: 32px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.placeholder-content p {
+  font-size: 18px;
+  color: var(--text-secondary);
+  max-width: 400px;
+  line-height: 1.6;
+}
+
+/* ── Loading Overlay ──────────────────────────────────────────────────────── */
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(10, 10, 16, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  z-index: 500;
+}
+
+.loading-overlay.hidden {
+  display: none;
+}
+
+.loading-spinner {
+  width: 64px;
+  height: 64px;
+  border: 4px solid var(--bg-secondary);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-overlay p {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+/* ── Hidden Utility ───────────────────────────────────────────────────────── */
+
+.hidden {
+  display: none !important;
+}
+
+/* ── Responsive Adjustments ───────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .dashboard {
+    padding: 20px;
+    gap: 16px;
+  }
+
+  .dashboard-header h1 {
+    font-size: 36px;
+  }
+
+  .dashboard-grid {
+    gap: 16px;
+  }
+
+  .block-icon {
+    width: 60px;
+    height: 60px;
+  }
+
+  .block-label {
+    font-size: 22px;
+  }
+
+  .block-description {
+    font-size: 14px;
+  }
+
+  .section-header {
+    padding: 16px 72px 16px 16px;
+  }
+
+  .section-header h2 {
+    font-size: 20px;
+  }
+
+  .dashboard-btn {
+    width: 56px;
+    height: 56px;
+    top: 12px;
+    right: 12px;
+  }
+
+  .dashboard-btn svg {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* ── iPad Landscape Optimization ──────────────────────────────────────────── */
+
+@media (min-width: 1024px) and (orientation: landscape) {
+  .dashboard-grid {
+    max-width: 1200px;
+    max-height: 600px;
+  }
+
+  .block-icon {
+    width: 100px;
+    height: 100px;
+  }
+
+  .block-label {
+    font-size: 32px;
+  }
+}

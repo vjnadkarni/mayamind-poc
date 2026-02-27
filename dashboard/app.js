@@ -1,0 +1,392 @@
+/**
+ * MayaMind Dashboard — Main Application
+ *
+ * Orchestrates navigation between sections with session persistence.
+ * Coordinates section lifecycle (mount/unmount/pause/resume).
+ */
+
+import { SessionManager } from './core/session-manager.js';
+import { AudioManager } from './core/audio-manager.js';
+import { TTSService } from './core/tts-service.js';
+
+// Section modules (lazy loaded)
+let MayaSection = null;
+let ExerciseSection = null;
+let HealthSection = null;
+let ConnectSection = null;
+
+// ── Application State ────────────────────────────────────────────────────────
+
+const state = {
+  currentSection: 'dashboard',
+  sections: {},
+  sessionManager: null,
+  ttsService: null,
+  initialized: false,
+};
+
+// ── DOM Elements ─────────────────────────────────────────────────────────────
+
+const elements = {
+  dashboard: null,
+  sectionContainer: null,
+  dashboardBtn: null,
+  loadingOverlay: null,
+  loadingText: null,
+  blocks: {},
+  sections: {},
+};
+
+// ── Initialization ───────────────────────────────────────────────────────────
+
+async function init() {
+  console.log('[Dashboard] Initializing...');
+
+  // Cache DOM elements
+  elements.dashboard = document.getElementById('dashboard');
+  elements.sectionContainer = document.getElementById('section-container');
+  elements.dashboardBtn = document.getElementById('dashboard-btn');
+  elements.loadingOverlay = document.getElementById('loading-overlay');
+  elements.loadingText = document.getElementById('loading-text');
+
+  // Cache section elements
+  elements.sections = {
+    maya: document.getElementById('maya-section'),
+    exercise: document.getElementById('exercise-section'),
+    health: document.getElementById('health-section'),
+    connect: document.getElementById('connect-section'),
+  };
+
+  // Initialize session manager
+  state.sessionManager = new SessionManager({
+    timeoutMs: 15 * 60 * 1000, // 15 minutes
+    onSessionExpired: handleSessionExpired,
+    onSessionStateChange: handleSessionStateChange,
+  });
+
+  // Initialize TTS service
+  state.ttsService = new TTSService();
+
+  // Set up event listeners
+  setupEventListeners();
+
+  // Update UI
+  updateDashboardUI();
+
+  state.initialized = true;
+  console.log('[Dashboard] Ready');
+}
+
+// ── Event Listeners ──────────────────────────────────────────────────────────
+
+function setupEventListeners() {
+  // Dashboard block clicks
+  document.querySelectorAll('.dashboard-block').forEach(block => {
+    block.addEventListener('click', () => {
+      const sectionId = block.dataset.section;
+      if (!block.classList.contains('placeholder')) {
+        navigateToSection(sectionId);
+      }
+    });
+
+    // Cache block element
+    elements.blocks[block.dataset.section] = block;
+  });
+
+  // Dashboard button (return from section)
+  elements.dashboardBtn.addEventListener('click', () => {
+    navigateToDashboard();
+  });
+
+  // Resume AudioContext on first user interaction
+  document.addEventListener('click', async () => {
+    if (!AudioManager.isReady()) {
+      await AudioManager.resume();
+    }
+  }, { once: true });
+}
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+
+async function navigateToSection(sectionId) {
+  if (state.currentSection === sectionId) return;
+  if (!['maya', 'exercise', 'health', 'connect'].includes(sectionId)) return;
+
+  console.log(`[Dashboard] Navigating to: ${sectionId}`);
+
+  // Pause current section if active
+  if (state.currentSection !== 'dashboard') {
+    await pauseCurrentSection();
+  }
+
+  // Show loading
+  showLoading(`Loading ${sectionId}...`);
+
+  // Show section container
+  elements.dashboard.classList.add('hidden');
+  elements.sectionContainer.classList.remove('hidden');
+
+  // Hide all sections, show target
+  Object.values(elements.sections).forEach(el => el.classList.add('hidden'));
+  elements.sections[sectionId].classList.remove('hidden');
+
+  // Mount or resume section
+  const hasActiveSession = state.sessionManager.isActive(sectionId);
+
+  if (hasActiveSession) {
+    // Resume existing session
+    await resumeSection(sectionId);
+    state.sessionManager.resumeSession(sectionId);
+  } else {
+    // Mount new section
+    await mountSection(sectionId);
+    state.sessionManager.startSession(sectionId);
+  }
+
+  state.currentSection = sectionId;
+  hideLoading();
+  updateDashboardUI();
+}
+
+function navigateToDashboard() {
+  if (state.currentSection === 'dashboard') return;
+
+  console.log('[Dashboard] Returning to dashboard');
+
+  // Pause current section
+  pauseCurrentSection();
+
+  // Hide section container, show dashboard
+  elements.sectionContainer.classList.add('hidden');
+  elements.dashboard.classList.remove('hidden');
+
+  state.currentSection = 'dashboard';
+  updateDashboardUI();
+}
+
+// ── Section Lifecycle ────────────────────────────────────────────────────────
+
+async function mountSection(sectionId) {
+  console.log(`[Dashboard] Mounting section: ${sectionId}`);
+
+  const container = elements.sections[sectionId].querySelector('.section-content');
+  const savedState = state.sessionManager.getState(sectionId);
+
+  switch (sectionId) {
+    case 'maya':
+      await mountMayaSection(container, savedState);
+      break;
+    case 'exercise':
+      await mountExerciseSection(container, savedState);
+      break;
+    case 'health':
+      await mountHealthSection(container, savedState);
+      break;
+    case 'connect':
+      await mountConnectSection(container, savedState);
+      break;
+  }
+}
+
+async function pauseCurrentSection() {
+  const sectionId = state.currentSection;
+  if (sectionId === 'dashboard') return;
+
+  console.log(`[Dashboard] Pausing section: ${sectionId}`);
+
+  const section = state.sections[sectionId];
+  if (section && typeof section.pause === 'function') {
+    const savedState = section.pause();
+    state.sessionManager.saveState(sectionId, savedState);
+  }
+
+  state.sessionManager.pauseSession(sectionId);
+}
+
+async function resumeSection(sectionId) {
+  console.log(`[Dashboard] Resuming section: ${sectionId}`);
+
+  const section = state.sections[sectionId];
+  const savedState = state.sessionManager.getState(sectionId);
+
+  if (section && typeof section.resume === 'function') {
+    await section.resume(savedState);
+  } else {
+    // Section not yet instantiated, mount it
+    const container = elements.sections[sectionId].querySelector('.section-content');
+    await mountSection(sectionId);
+  }
+}
+
+async function unmountSection(sectionId) {
+  console.log(`[Dashboard] Unmounting section: ${sectionId}`);
+
+  const section = state.sections[sectionId];
+  if (section && typeof section.unmount === 'function') {
+    section.unmount();
+  }
+
+  state.sections[sectionId] = null;
+}
+
+// ── Maya Section ─────────────────────────────────────────────────────────────
+
+async function mountMayaSection(container, savedState) {
+  // Lazy load Maya section module
+  if (!MayaSection) {
+    const module = await import('./sections/maya/maya-section.js');
+    MayaSection = module.MayaSection;
+  }
+
+  const section = new MayaSection({
+    ttsService: state.ttsService,
+    onStateChange: (sectionState) => {
+      state.sessionManager.saveState('maya', sectionState);
+      state.sessionManager.recordActivity('maya');
+    },
+  });
+
+  await section.mount(container, savedState);
+  state.sections.maya = section;
+}
+
+// ── Exercise Section ─────────────────────────────────────────────────────────
+
+async function mountExerciseSection(container, savedState) {
+  // Lazy load Exercise section module
+  if (!ExerciseSection) {
+    const module = await import('./sections/exercise/exercise-section.js');
+    ExerciseSection = module.ExerciseSection;
+  }
+
+  const section = new ExerciseSection({
+    ttsService: state.ttsService,
+    onStateChange: (sectionState) => {
+      state.sessionManager.saveState('exercise', sectionState);
+      state.sessionManager.recordActivity('exercise');
+    },
+    onRepUpdate: () => {
+      state.sessionManager.recordActivity('exercise');
+    },
+  });
+
+  await section.mount(container, savedState);
+  state.sections.exercise = section;
+}
+
+// ── Health Section (Placeholder) ─────────────────────────────────────────────
+
+async function mountHealthSection(container, savedState) {
+  // Lazy load Health section module
+  if (!HealthSection) {
+    const module = await import('./sections/health/health-section.js');
+    HealthSection = module.HealthSection;
+  }
+
+  const section = new HealthSection();
+  await section.mount(container, savedState);
+  state.sections.health = section;
+}
+
+// ── Connect Section (Placeholder) ────────────────────────────────────────────
+
+async function mountConnectSection(container, savedState) {
+  // Lazy load Connect section module
+  if (!ConnectSection) {
+    const module = await import('./sections/connect/connect-section.js');
+    ConnectSection = module.ConnectSection;
+  }
+
+  const section = new ConnectSection();
+  await section.mount(container, savedState);
+  state.sections.connect = section;
+}
+
+// ── Session Callbacks ────────────────────────────────────────────────────────
+
+function handleSessionExpired(sectionId) {
+  console.log(`[Dashboard] Session expired: ${sectionId}`);
+
+  // Unmount section
+  unmountSection(sectionId);
+
+  // If user is viewing this section, return to dashboard
+  if (state.currentSection === sectionId) {
+    navigateToDashboard();
+    showToast(`Your ${sectionId} session has expired`);
+  }
+
+  updateDashboardUI();
+}
+
+function handleSessionStateChange(sectionId, info) {
+  updateDashboardUI();
+}
+
+// ── UI Updates ───────────────────────────────────────────────────────────────
+
+function updateDashboardUI() {
+  // Update block states
+  for (const [sectionId, block] of Object.entries(elements.blocks)) {
+    if (!block) continue;
+
+    const isActive = state.sessionManager.isActive(sectionId);
+    const isPaused = state.sessionManager.isPaused(sectionId);
+
+    block.classList.toggle('active', isActive && !isPaused);
+    block.classList.toggle('paused', isPaused);
+
+    // Update status badge
+    const statusEl = block.querySelector('.block-status');
+    if (statusEl) {
+      if (isPaused) {
+        statusEl.textContent = 'Paused';
+        statusEl.className = 'block-status paused';
+      } else if (isActive) {
+        statusEl.textContent = 'Active';
+        statusEl.className = 'block-status active';
+      } else {
+        statusEl.className = 'block-status';
+      }
+    }
+  }
+}
+
+function showLoading(text = 'Loading...') {
+  elements.loadingText.textContent = text;
+  elements.loadingOverlay.classList.remove('hidden');
+}
+
+function hideLoading() {
+  elements.loadingOverlay.classList.add('hidden');
+}
+
+function showToast(message) {
+  // Simple toast notification
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = message;
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    font-size: 16px;
+    z-index: 1000;
+    animation: fadeIn 0.3s ease;
+  `;
+  document.body.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.animation = 'fadeOut 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+// ── Start Application ────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', init);

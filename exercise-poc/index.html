@@ -517,6 +517,53 @@
       50% { opacity: 0.6; }
     }
 
+    .thinking-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
+      background: #1a2a3a;
+      border: 1px solid #2a6090;
+      border-radius: 6px;
+      margin-top: 16px;
+      color: #7db8e8;
+    }
+    .thinking-indicator.hidden { display: none; }
+
+    .thinking-dots {
+      display: flex;
+      gap: 4px;
+    }
+    .thinking-dots span {
+      width: 8px;
+      height: 8px;
+      background: #7db8e8;
+      border-radius: 50%;
+      animation: thinking-bounce 1.4s ease-in-out infinite;
+    }
+    .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes thinking-bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
+    .speaking-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
+      background: #1a3a2a;
+      border: 1px solid #2a9060;
+      border-radius: 6px;
+      margin-top: 16px;
+      color: #8cffbc;
+    }
+    .speaking-indicator.hidden { display: none; }
+
     .mic-icon {
       font-size: 20px;
     }
@@ -637,6 +684,16 @@
       <div class="mic-indicator hidden" id="mic-indicator">
         <span class="mic-icon">🎤</span>
         <span class="mic-label">Listening...</span>
+      </div>
+      <div class="thinking-indicator hidden" id="thinking-indicator">
+        <div class="thinking-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span>Thinking...</span>
+      </div>
+      <div class="speaking-indicator hidden" id="speaking-indicator">
+        <span>🔊</span>
+        <span>Speaking...</span>
       </div>
     </div>
 

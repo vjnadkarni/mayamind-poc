@@ -7,7 +7,7 @@ MayaMind is an AI-powered companion and wellness platform for seniors, delivered
 
 The **proof-of-concept** (tagged `v0.1.0`) validated the core conversation loop: User speaks → speech recognized → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. End-to-end latency: sub-3 seconds. Supports barge-in and mood-aware responses.
 
-The project is now moving to **production implementation**, starting with a web-based MediaPipe exercise detection prototype.
+The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, and future features (health monitoring, family connection) into a single iPad-optimized interface.
 
 ## Product Documents
 
@@ -63,10 +63,38 @@ mayamind-poc/
 │   ├── MayaMind_Executive_Summary.md    # v1.02
 │   ├── MayaMind_MRD_v1.03.md
 │   ├── MayaMind_PRD_v1.05.md
+│   ├── Personalization_Architecture_v1.0.md   # Personalization system design
 │   └── *.docx                           # Original versions (not maintained)
 ├── server/
 │   ├── server.js           # Express server: static files + API proxies
 │   └── package.json
+├── dashboard/              # Unified dashboard app (current development)
+│   ├── index.html          # Dashboard shell with 4-block grid
+│   ├── app.js              # Main orchestrator + navigation
+│   ├── styles.css          # Touch-friendly iPad styles
+│   ├── lib/                # Third-party libraries
+│   │   ├── sql-wasm.js     # sql.js (SQLite via WebAssembly)
+│   │   └── sql-wasm.wasm
+│   ├── core/               # Shared infrastructure
+│   │   ├── session-manager.js       # 15-min timeout, state preservation
+│   │   ├── audio-manager.js         # Shared AudioContext singleton
+│   │   ├── tts-service.js           # Unified ElevenLabs TTS
+│   │   ├── personalization-store.js # SQLite database (sql.js + localStorage)
+│   │   ├── consent-manager.js       # Three-tier consent model
+│   │   ├── extraction-pipeline.js   # Claude-based personality extraction
+│   │   ├── content-safety.js        # Content safety filtering
+│   │   └── voice-commands.js        # Voice command detection
+│   ├── components/         # Shared UI components
+│   │   └── consent-modal.js         # "What Maya Knows" transparency modal
+│   └── sections/           # Feature sections
+│       ├── maya/            # TalkingHead conversation
+│       │   └── maya-section.js      # Full conversation pipeline + personalization
+│       ├── exercise/        # Exercise coaching (wraps exercise-poc)
+│       │   └── exercise-section.js
+│       ├── health/          # Placeholder (Apple HealthKit)
+│       │   └── health-section.js
+│       └── connect/         # Placeholder (WhatsApp integration)
+│           └── connect-section.js
 ├── public/                 # TalkingHead conversation POC (v0.1.0)
 │   ├── index.html          # Single page UI
 │   ├── app.js              # Conversation pipeline orchestration
@@ -210,6 +238,95 @@ node server/server.js
 | `exercise-poc/index.html` | UI with video feed, voice panel, rep counters |
 
 Development machine: MacBook M3 Pro with built-in webcam (narrower FOV than iPad's 122° ultra-wide — user stands further back for full-body visibility).
+
+## Unified Dashboard (dashboard/)
+
+The dashboard combines all features into a single iPad-optimized interface. Accessible at `http://localhost:3000/dashboard/`.
+
+### Navigation
+
+- 2x2 grid: Maya Conversation (active), Exercise Guidance (active), Health Monitoring (placeholder), Connect with Loved Ones (placeholder)
+- Tap block → full-screen section view
+- Dashboard button always visible for single-tap return
+- Session persists 15 minutes when navigating between sections
+
+### Running the Dashboard
+
+```bash
+node server/server.js
+# Open http://localhost:3000/dashboard/ in Chrome or Safari
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `dashboard/app.js` | Navigation controller, section lifecycle management |
+| `dashboard/sections/maya/maya-section.js` | Full Maya conversation pipeline with personalization |
+| `dashboard/core/personalization-store.js` | SQLite database via sql.js with localStorage persistence |
+| `dashboard/core/consent-manager.js` | Three-tier consent flow management |
+| `dashboard/core/extraction-pipeline.js` | Claude-based personality signal extraction |
+| `dashboard/components/consent-modal.js` | "What Maya Knows" transparency modal |
+
+## Personalization System
+
+### Three-Tier Consent Model
+
+| Tier | Name | Data Stored | Trigger |
+|------|------|-------------|---------|
+| Tier 1 | Session Only | Nothing persisted | Default |
+| Tier 2 | Preferences | Name, preferences, topics/interests | User consents after ~2 exchanges |
+| Tier 3 | Full Personality | + Communication style, emotional patterns, session summaries | After 3+ days on Tier 2 |
+
+### How Consent Works
+
+- Consent question is **woven into Maya's natural conversation** via Claude prompt injection (not a separate prompt)
+- Triggered after exchange 2 if Tier 2 not yet enabled
+- User's affirmative/negative response processed by `ConsentManager`
+- If user barges in during consent question, consent is cancelled and retried later
+- 60-second cooldown between consent prompts (cleared on barge-in cancellation)
+
+### Data Storage
+
+- **sql.js** (SQLite compiled to WebAssembly) runs entirely in-browser
+- Database serialized to **localStorage** for persistence across sessions
+- Tables: `preferences`, `personality_profiles`, `topics`, `session_summaries`, `consent_settings`
+- No server-side storage — all personalization data stays on-device
+
+### Extraction Pipeline
+
+Two extraction modes:
+
+1. **Inline extraction** (real-time): Regex-based, detects name, family members, exercise time during conversation
+2. **Session extraction** (Claude API): Full transcript analysis via `/api/extract-personality` endpoint
+   - Triggered when user asks "What do you know about me?"
+   - Uses Claude Sonnet with the 6+1 category framework (Identity, Communication, Health, Relationships, Routine, Emotional + Topics)
+   - Server endpoint: `POST /api/extract-personality` (`max_tokens: 2000`)
+   - Claude may wrap JSON in markdown code fences — both server and client strip these before parsing
+
+### Voice Commands
+
+| Command | Trigger Phrases | Action |
+|---------|----------------|--------|
+| `LIST_PREFERENCES` | "What do you know about me?", "What do you remember?" | Run extraction → show transparency modal |
+| `FORGET_ALL` | "Forget everything about me" | Reset to Tier 1, clear all data |
+| `STOP_LEARNING` | "Stop learning about me" | Disable Tier 3 |
+
+### Key Implementation Details
+
+**Echo Detection:**
+- Speech recognition stays active during Maya's TTS (required for barge-in)
+- `isLikelyEcho()` compares heard transcript against `currentMayaSpeech` using word overlap
+- Threshold: 60%+ word overlap → classified as echo, discarded
+
+**Barge-In:**
+- Detection uses `head.isSpeaking` (actual avatar state) not `this.state` (avoids race condition)
+- `bargeIn()` stops audio, aborts TTS requests, processes user's speech immediately
+- Cancels pending consent flows on barge-in
+
+**Input Serialization:**
+- `processInput()` wrapper prevents overlapping `handleUserInput` calls
+- Uses `processingInput` flag and `pendingInput` queue
 
 ## GitHub
 

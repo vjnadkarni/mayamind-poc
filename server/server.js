@@ -29,6 +29,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // Serve exercise POC from exercise-poc/
 app.use('/exercise-poc', express.static(path.join(__dirname, '..', 'exercise-poc')));
 
+// Serve unified dashboard
+app.use('/dashboard', express.static(path.join(__dirname, '..', 'dashboard')));
+
 // ── GET /api/config — Public config for browser (Supabase URL + anon key) ────
 app.get('/api/config', (req, res) => {
   res.json({
@@ -177,6 +180,123 @@ app.post('/api/chat', async (req, res) => {
       res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
       res.end();
     }
+  }
+});
+
+// ── POST /api/chat/exercise — Exercise coaching with custom system prompt ───
+app.post('/api/chat/exercise', async (req, res) => {
+  const { messages, systemPrompt } = req.body;
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages array is required' });
+  }
+
+  if (!systemPrompt) {
+    return res.status(400).json({ error: 'systemPrompt is required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    const stream = anthropic.messages.stream({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 150,  // Shorter responses for exercise coaching
+      system: systemPrompt,
+      messages,
+    });
+
+    stream.on('text', (text) => {
+      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    });
+
+    stream.on('error', (err) => {
+      console.error('Anthropic stream error:', err.message);
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    });
+
+    await stream.finalMessage();
+    res.write('data: [DONE]\n\n');
+    res.end();
+  } catch (err) {
+    console.error('Anthropic error:', err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+// ── POST /api/extract-personality — Extract personality signals from transcript ─
+// Used by the personalization system to analyze conversations
+app.post('/api/extract-personality', async (req, res) => {
+  const { transcript, systemPrompt } = req.body;
+
+  console.log('[ExtractAPI] Received extraction request');
+  console.log('[ExtractAPI] Transcript length:', transcript?.length || 0, 'chars');
+
+  if (!transcript || !transcript.trim()) {
+    return res.status(400).json({ error: 'transcript is required' });
+  }
+
+  if (!systemPrompt) {
+    return res.status(400).json({ error: 'systemPrompt is required' });
+  }
+
+  try {
+    console.log('[ExtractAPI] Calling Claude for extraction...');
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: `Analyze this conversation transcript and extract personality signals as specified:\n\n${transcript}`
+        }
+      ]
+    });
+
+    // Extract the text content from the response
+    const extractionText = response.content
+      .filter(c => c.type === 'text')
+      .map(c => c.text)
+      .join('');
+
+    console.log('[ExtractAPI] Claude raw response:', extractionText.substring(0, 500) + (extractionText.length > 500 ? '...' : ''));
+
+    // Try to parse as JSON (Claude sometimes wraps in markdown code fences)
+    let jsonStr = extractionText.trim();
+    const fullFenceMatch = jsonStr.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+    if (fullFenceMatch) {
+      jsonStr = fullFenceMatch[1].trim();
+      console.log('[ExtractAPI] Stripped markdown code fences from response');
+    } else if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').trim();
+      jsonStr = jsonStr.replace(/\n?\s*```$/, '').trim();
+      console.log('[ExtractAPI] Stripped opening code fence from response');
+    }
+
+    try {
+      const extraction = JSON.parse(jsonStr);
+      console.log('[ExtractAPI] Parsed successfully. Preferences:', extraction.explicitPreferences?.length || 0,
+                  'Observations:', extraction.personalityObservations?.length || 0,
+                  'Topics:', extraction.topics?.length || 0);
+      res.json({ extraction });
+    } catch (parseError) {
+      console.log('[ExtractAPI] JSON parse failed:', parseError.message);
+      // If parsing fails, return the raw text
+      res.json({ extraction: extractionText, parseError: parseError.message });
+    }
+
+  } catch (err) {
+    console.error('[ExtractAPI] Error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -344,7 +464,8 @@ function handleDeepgram(clientWs) {
 const PORT = parseInt(process.env.PORT || '3000', 10);
 server.listen(PORT, async () => {
   console.log(`MayaMind POC → http://localhost:${PORT}`);
-  console.log(`  Exercise POC → http://localhost:${PORT}/exercise`);
+  console.log(`  Dashboard     → http://localhost:${PORT}/dashboard`);
+  console.log(`  Exercise POC  → http://localhost:${PORT}/exercise`);
   console.log(`  Model:  claude-sonnet-4-6`);
   console.log(`  Voice:  ${process.env.ELEVENLABS_VOICE_ID}`);
   await verifyDeepgramKey();

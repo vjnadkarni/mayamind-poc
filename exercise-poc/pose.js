@@ -257,8 +257,29 @@ const pushupDetector = new PushupDetector({
 // Voice workflow for exercise selection
 const voiceWorkflow = new VoiceWorkflow({
   idleTimeoutMs: 5000,
+  useLLM: true, // Enable conversational LLM mode
   onStateChange: (newState, oldState) => {
     updateVoiceStatusDisplay(newState);
+  },
+  onSpeakStart: () => {
+    // Show speaking indicator, hide others
+    if (speakingIndicatorEl) speakingIndicatorEl.classList.remove('hidden');
+    if (micIndicatorEl) micIndicatorEl.classList.add('hidden');
+    if (thinkingIndicatorEl) thinkingIndicatorEl.classList.add('hidden');
+  },
+  onSpeakEnd: () => {
+    // Hide speaking indicator
+    if (speakingIndicatorEl) speakingIndicatorEl.classList.add('hidden');
+  },
+  onThinkingStart: () => {
+    // Show thinking indicator, hide others
+    if (thinkingIndicatorEl) thinkingIndicatorEl.classList.remove('hidden');
+    if (micIndicatorEl) micIndicatorEl.classList.add('hidden');
+    if (speakingIndicatorEl) speakingIndicatorEl.classList.add('hidden');
+  },
+  onThinkingEnd: () => {
+    // Hide thinking indicator
+    if (thinkingIndicatorEl) thinkingIndicatorEl.classList.add('hidden');
   },
   onExerciseStart: (exerciseKey) => {
     console.log(`[Voice] Exercise started: ${exerciseKey}`);
@@ -462,6 +483,8 @@ const voiceStatusEl = document.getElementById('voice-status');
 const voiceExerciseEl = document.getElementById('voice-exercise');
 const voiceRepsEl = document.getElementById('voice-reps');
 const micIndicatorEl = document.getElementById('mic-indicator');
+const thinkingIndicatorEl = document.getElementById('thinking-indicator');
+const speakingIndicatorEl = document.getElementById('speaking-indicator');
 
 const VOICE_STATE_LABELS = {
   idle: 'Waiting...',
@@ -482,9 +505,14 @@ function updateVoiceStatusDisplay(state) {
     voiceStatusEl.textContent = VOICE_STATE_LABELS[state] || state;
   }
   // Show/hide mic indicator based on listening states
+  const isListening = ['waiting_start', 'waiting_selection', 'waiting_done', 'waiting_more'].includes(state);
   if (micIndicatorEl) {
-    const isListening = ['waiting_start', 'waiting_selection', 'waiting_done', 'waiting_more'].includes(state);
     micIndicatorEl.classList.toggle('hidden', !isListening);
+  }
+  // Hide other indicators when listening
+  if (isListening) {
+    if (speakingIndicatorEl) speakingIndicatorEl.classList.add('hidden');
+    if (thinkingIndicatorEl) thinkingIndicatorEl.classList.add('hidden');
   }
 }
 
@@ -765,6 +793,33 @@ function processResults(results, timestamp) {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const activeExercise = voiceWorkflow.activeExercise;
+
+  // Debug: Log detector state periodically when exercise is active
+  if (activeExercise && frameCount % 30 === 0) {  // Every ~1 second at 30fps
+    const status = activeExercise === 'squat' ? squatDetector.getStatus() :
+                   activeExercise === 'biceps_curl' ? bicepsCurlDetector.getStatus() :
+                   activeExercise === 'reverse_lunge' ? lungeDetector.getStatus() :
+                   pushupDetector.getStatus();
+
+    // Detailed debug for squat - show angles, visibility, and orientation
+    if (activeExercise === 'squat') {
+      const hipL = smoothedAngles?.leftHip;
+      const hipR = smoothedAngles?.rightHip;
+      const kneeL = smoothedAngles?.leftKnee;
+      const kneeR = smoothedAngles?.rightKnee;
+
+      const isFrontal = status.orientation === 'frontal' || status.orientation === 'unknown';
+      const standingHipThreshold = isFrontal ? '145' : '155';
+      const standingKneeThreshold = isFrontal ? '135' : '155';
+
+      console.log(`[Squat Debug] State: ${status.state} | Orientation: ${status.orientation}`);
+      console.log(`  Hip  L: ${hipL?.angle?.toFixed(0) || '--'}° (vis: ${hipL?.visibility?.toFixed(2) || '--'}) | R: ${hipR?.angle?.toFixed(0) || '--'}° (vis: ${hipR?.visibility?.toFixed(2) || '--'})`);
+      console.log(`  Knee L: ${kneeL?.angle?.toFixed(0) || '--'}° (vis: ${kneeL?.visibility?.toFixed(2) || '--'}) | R: ${kneeR?.angle?.toFixed(0) || '--'}° (vis: ${kneeR?.visibility?.toFixed(2) || '--'})`);
+      console.log(`  Standing threshold: Hip > ${standingHipThreshold}°, Knee > ${standingKneeThreshold}° | Bottom: Hip < 120° OR Knee < 120°`);
+    } else {
+      console.log(`[Debug] Exercise: ${activeExercise}, State: ${status.state}, KneeL: ${smoothedAngles?.leftKnee?.angle?.toFixed(0) || '--'}°, KneeR: ${smoothedAngles?.rightKnee?.angle?.toFixed(0) || '--'}°`);
+    }
+  }
 
   if (activeExercise === 'squat') {
     squatDetector.update(smoothedAngles, timestamp, landmarks2D);
@@ -1142,6 +1197,123 @@ templateExportBtn.addEventListener('click', () => {
   const date = new Date().toISOString().slice(0, 10);
   templateStore.exportToFile(`exercise_templates_${date}.json`);
 });
+
+// ── Dashboard Communication (when embedded as iframe) ─────────────────────────
+
+/**
+ * Pause the camera (turns off LED but keeps stream alive for fast resume)
+ */
+function pauseCamera() {
+  if (stream) {
+    stream.getVideoTracks().forEach(track => {
+      track.enabled = false;
+    });
+    console.log('[Camera] Paused (tracks disabled)');
+  }
+}
+
+/**
+ * Resume the camera (turns LED back on)
+ */
+function resumeCamera() {
+  if (stream) {
+    stream.getVideoTracks().forEach(track => {
+      track.enabled = true;
+    });
+    console.log('[Camera] Resumed (tracks enabled)');
+  }
+}
+
+/**
+ * Handle messages from parent dashboard window
+ */
+window.addEventListener('message', (event) => {
+  // Security: only accept messages from same origin
+  if (event.origin !== window.location.origin) return;
+
+  const { action, data } = event.data || {};
+  console.log('[ExercisePOC] Received message:', action, data);
+
+  switch (action) {
+    case 'pauseCamera':
+      pauseCamera();
+      break;
+
+    case 'resumeCamera':
+      resumeCamera();
+      break;
+
+    case 'pauseWorkflow':
+      if (voiceWorkflow) {
+        const savedState = voiceWorkflow.pause();
+        // Send state back to parent
+        window.parent.postMessage({
+          type: 'workflowPaused',
+          state: savedState,
+        }, '*');
+      }
+      pauseCamera();
+      break;
+
+    case 'resumeWorkflow':
+      resumeCamera();
+      if (voiceWorkflow && data?.state) {
+        voiceWorkflow.resume(data.state);
+      } else if (voiceWorkflow) {
+        voiceWorkflow.resume();
+      }
+      break;
+
+    case 'getState':
+      // Return full state for session persistence
+      const fullState = {
+        isRunning,
+        voiceState: voiceWorkflow ? voiceWorkflow.getFullState() : null,
+        exerciseReps: { ...exerciseReps },
+      };
+      window.parent.postMessage({
+        type: 'stateResponse',
+        state: fullState,
+      }, '*');
+      break;
+
+    case 'restoreState':
+      // Restore state from saved session
+      if (data?.state) {
+        // Restore rep counts
+        if (data.state.exerciseReps) {
+          Object.assign(exerciseReps, data.state.exerciseReps);
+          Object.keys(exerciseReps).forEach(updateExerciseRepDisplay);
+        }
+        // Restore voice workflow state
+        if (data.state.voiceState && voiceWorkflow) {
+          voiceWorkflow.resume(data.state.voiceState);
+        }
+      }
+      break;
+
+    case 'start':
+      // Start the session if not already running
+      if (!isRunning && !startBtn.disabled) {
+        startBtn.click();
+      }
+      break;
+
+    case 'stop':
+      // Stop the session if running
+      if (isRunning) {
+        startBtn.click();
+      }
+      break;
+  }
+});
+
+// Notify parent when ready (for iframe embedding)
+if (window.parent !== window) {
+  window.addEventListener('load', () => {
+    window.parent.postMessage({ type: 'exercisePocReady' }, '*');
+  });
+}
 
 // ── Initialize ───────────────────────────────────────────────────────────────
 

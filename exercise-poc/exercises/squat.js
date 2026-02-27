@@ -20,9 +20,13 @@ import { LANDMARKS } from '../joints.js';
  * Squat detection thresholds (in degrees)
  */
 export const SQUAT_THRESHOLDS = {
-  // Standing position thresholds
+  // Standing position thresholds (sagittal/oblique view)
   standingHipMin: 155,      // Hip angle > this = standing
   standingKneeMin: 155,     // Knee angle > this = standing
+
+  // Frontal view thresholds - angles read ~10-15° lower due to 3D estimation
+  frontalStandingHipMin: 145,   // Lower threshold for frontal view
+  frontalStandingKneeMin: 135,  // Knees appear more bent in frontal view
 
   // Bottom position thresholds
   bottomHipMax: 120,        // Hip angle < this = at bottom
@@ -237,9 +241,17 @@ export class SquatDetector {
 
   /**
    * Check if angles indicate standing position
+   * Uses orientation-specific thresholds for frontal view
    */
   checkAnglesStanding(hipAngle, kneeAngle) {
-    return hipAngle > this.thresholds.standingHipMin && kneeAngle > this.thresholds.standingKneeMin;
+    // Use lower thresholds for frontal view where angles read ~10-15° lower
+    // Also use frontal thresholds when orientation is UNKNOWN (be lenient during startup)
+    if (this.orientation === Orientation.FRONTAL || this.orientation === Orientation.UNKNOWN) {
+      return hipAngle > this.thresholds.frontalStandingHipMin &&
+             kneeAngle > this.thresholds.frontalStandingKneeMin;
+    }
+    return hipAngle > this.thresholds.standingHipMin &&
+           kneeAngle > this.thresholds.standingKneeMin;
   }
 
   /**
