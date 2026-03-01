@@ -443,8 +443,11 @@ Claude uses ACTION tags (alongside MOOD tags) to trigger client-side operations:
 
 - Global SSE listener in `app.js` runs on all pages (not just Connect section)
 - When a WhatsApp message arrives while user is NOT in Connect, a pink pulsing "N new" badge appears on the Connect dashboard tile
+- Messages received while on dashboard are saved to ConnectStore via `saveIncomingMessage()` so they're available when Connect opens
 - Badge clears automatically when user navigates into the Connect section
+- Badge priority: Pink notification > Amber "Paused" > Green "Active"
 - Uses `EventSource` on `/api/whatsapp/events` — same SSE endpoint as ConnectSection
+- ConnectStore is initialized at dashboard startup (not just when Connect section mounts)
 
 ### Emoji Support
 

@@ -8,6 +8,7 @@
 import { SessionManager } from './core/session-manager.js';
 import { AudioManager } from './core/audio-manager.js';
 import { TTSService } from './core/tts-service.js';
+import { connectStore } from './core/connect-store.js';
 
 // Section modules (lazy loaded)
 let MayaSection = null;
@@ -72,6 +73,9 @@ async function init() {
   // Initialize TTS service
   state.ttsService = new TTSService();
 
+  // Initialize ConnectStore (needed to save messages received while not in Connect section)
+  await connectStore.initialize();
+
   // Set up event listeners
   setupEventListeners();
 
@@ -133,7 +137,8 @@ function setupGlobalSSE() {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'message' && state.currentSection !== 'connect') {
-          // Only count when NOT in the Connect section (ConnectSection handles its own)
+          // Save message to ConnectStore so it's available when Connect section opens
+          saveIncomingMessage(msg);
           state.unreadWhatsAppCount++;
           updateConnectBadge();
           console.log(`[Dashboard] WhatsApp notification: ${state.unreadWhatsAppCount} unread`);
@@ -151,6 +156,33 @@ function setupGlobalSSE() {
   }
 
   connect();
+}
+
+function saveIncomingMessage(msg) {
+  try {
+    // Find or create contact
+    let contact = connectStore.findContactByPhone(msg.from);
+    if (!contact) {
+      contact = connectStore.addContact(msg.from, msg.from);
+    }
+
+    // Determine message type
+    const type = (msg.mediaType && msg.mediaType.startsWith('audio')) ? 'voice'
+      : (msg.mediaType && msg.mediaType.startsWith('image')) ? 'image'
+      : 'text';
+
+    // Save to store (marked as unread)
+    connectStore.addMessage(
+      contact.id,
+      'received',
+      type,
+      msg.body || null,
+      msg.mediaUrl || null
+    );
+    console.log(`[Dashboard] Saved message from ${contact.name} to ConnectStore`);
+  } catch (err) {
+    console.error('[Dashboard] Failed to save incoming message:', err);
+  }
 }
 
 function updateConnectBadge() {
