@@ -14,6 +14,7 @@ export class SessionManager {
     this.sessions = {
       maya: { active: false, paused: false, state: null, lastActivity: null },
       exercise: { active: false, paused: false, state: null, lastActivity: null },
+      connect: { active: false, paused: false, state: null, lastActivity: null },
     };
 
     // Callbacks

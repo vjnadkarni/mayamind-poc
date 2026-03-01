@@ -288,7 +288,7 @@ async function mountHealthSection(container, savedState) {
   state.sections.health = section;
 }
 
-// ── Connect Section (Placeholder) ────────────────────────────────────────────
+// ── Connect Section ──────────────────────────────────────────────────────────
 
 async function mountConnectSection(container, savedState) {
   // Lazy load Connect section module
@@ -297,7 +297,14 @@ async function mountConnectSection(container, savedState) {
     ConnectSection = module.ConnectSection;
   }
 
-  const section = new ConnectSection();
+  const section = new ConnectSection({
+    ttsService: state.ttsService,
+    onStateChange: (sectionState) => {
+      state.sessionManager.saveState('connect', sectionState);
+      state.sessionManager.recordActivity('connect');
+    },
+  });
+
   await section.mount(container, savedState);
   state.sections.connect = section;
 }

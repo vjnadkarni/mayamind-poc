@@ -7,7 +7,7 @@ MayaMind is an AI-powered companion and wellness platform for seniors, delivered
 
 The **proof-of-concept** (tagged `v0.1.0`) validated the core conversation loop: User speaks → speech recognized → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. End-to-end latency: sub-3 seconds. Supports barge-in and mood-aware responses.
 
-The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, and future features (health monitoring, family connection) into a single iPad-optimized interface. The conversation pipeline now includes Claude's native web search tool for real-time information (weather, news, sports scores).
+The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, and Connect (WhatsApp messaging) into a single iPad-optimized interface. The conversation pipeline includes Claude's native web search tool for real-time information (weather, news, sports scores).
 
 ## Product Documents
 
@@ -35,7 +35,9 @@ Original `.docx` versions are also in `docs/` for reference but are no longer ma
 | Web Portals | React + REST API | Cloud | — |
 | Device Management | Apple Business Manager + MDM | Cloud | — |
 
-Key principle: **Only two cloud APIs incur per-use charges** (Claude, including web search, and ElevenLabs). Everything else is on-device or free.
+| WhatsApp Messaging | Twilio WhatsApp API | Cloud | Per-message |
+
+Key principle: **Three cloud APIs incur per-use charges** (Claude/web search, ElevenLabs, and Twilio). Everything else is on-device or free.
 
 ## RBAC Roles
 
@@ -81,6 +83,8 @@ mayamind-poc/
 │   │   ├── audio-manager.js         # Shared AudioContext singleton
 │   │   ├── tts-service.js           # Unified ElevenLabs TTS
 │   │   ├── personalization-store.js # SQLite database (sql.js + localStorage)
+│   │   ├── connect-store.js         # SQLite store for contacts & messages
+│   │   ├── emoji-utils.js           # Emoji-to-speech conversion & mood extraction
 │   │   ├── consent-manager.js       # Three-tier consent model
 │   │   ├── extraction-pipeline.js   # Claude-based personality extraction
 │   │   ├── content-safety.js        # Content safety filtering
@@ -94,7 +98,7 @@ mayamind-poc/
 │       │   └── exercise-section.js
 │       ├── health/          # Placeholder (Apple HealthKit)
 │       │   └── health-section.js
-│       └── connect/         # Placeholder (WhatsApp integration)
+│       └── connect/         # WhatsApp messaging via Twilio
 │           └── connect-section.js
 ├── public/                 # TalkingHead conversation POC (v0.1.0)
 │   ├── index.html          # Single page UI
@@ -140,6 +144,10 @@ Keys used by the POC:
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_VOICE_ID` (Rachel: `21m00Tcm4TlvDq8ikWAM`)
 - `PORT=3000`
+- `TWILIO_ACCOUNT_SID` — Twilio account SID (for Connect section)
+- `TWILIO_AUTH_TOKEN` — Twilio auth token
+- `TWILIO_WHATSAPP_NUMBER` — e.g., `whatsapp:+14155238886` (sandbox)
+- `NGROK_URL` — e.g., `https://your-domain.ngrok-free.dev` (for Twilio media webhooks)
 
 ### Running the POC
 
@@ -250,7 +258,7 @@ The dashboard combines all features into a single iPad-optimized interface. Acce
 
 ### Navigation
 
-- 2x2 grid: Maya Conversation (active), Exercise Guidance (active), Health Monitoring (placeholder), Connect with Loved Ones (placeholder)
+- 2x2 grid: Maya Conversation (active), Exercise Guidance (active), Health Monitoring (placeholder), Connect with Loved Ones (active)
 - Tap block → full-screen section view
 - Dashboard button always visible for single-tap return
 - Session persists 15 minutes when navigating between sections
@@ -268,7 +276,10 @@ node server/server.js
 |------|---------|
 | `dashboard/app.js` | Navigation controller, section lifecycle management |
 | `dashboard/sections/maya/maya-section.js` | Full Maya conversation pipeline with personalization |
+| `dashboard/sections/connect/connect-section.js` | WhatsApp messaging: TalkingHead avatar, voice, Claude conversation, ACTION tags |
 | `dashboard/core/personalization-store.js` | SQLite database via sql.js with localStorage persistence |
+| `dashboard/core/connect-store.js` | SQLite store for contacts and message history |
+| `dashboard/core/emoji-utils.js` | Emoji-to-speech conversion and mood extraction for voice interface |
 | `dashboard/core/consent-manager.js` | Three-tier consent flow management |
 | `dashboard/core/extraction-pipeline.js` | Claude-based personality signal extraction |
 | `dashboard/components/consent-modal.js` | "What Maya Knows" transparency modal |
@@ -356,8 +367,84 @@ Maya can answer questions about current events, weather, news, sports scores, an
 
 - `sanitizeForTTS()` function in `server/server.js` runs on all text before sending to ElevenLabs
 - Converts symbols to spoken words: `°F` → "degrees Fahrenheit", `"` → "inches", `%` → "percent", `mph` → "miles per hour", etc.
-- Also strips any leaked `[MOOD:xxx]` tags as a safety net
+- Strips any leaked `[MOOD:xxx]` tags as a safety net
+- Strips all emoji Unicode ranges (emoticons, pictographs, symbols, dingbats, etc.) to prevent garbled TTS output
 - System prompt additionally instructs Claude to avoid symbols and spell them out
+
+## Connect Section (WhatsApp Messaging via Twilio)
+
+The Connect section enables seniors to send and receive WhatsApp messages to close family/friends through Maya's conversational voice interface. All interactions are voice-driven — no typing required.
+
+### Architecture
+
+```
+Senior speaks → Web Speech API → Claude (messaging system prompt)
+  → Claude identifies intent + returns [ACTION:xxx] tags
+  → Client parses actions, executes (save contact, send WhatsApp, start recording)
+  → Maya avatar confirms via TTS + lip-sync
+
+Contact sends WhatsApp → Twilio webhook → POST /api/whatsapp/webhook
+  → Server downloads media (with Twilio auth), saves locally
+  → Server pushes to SSE clients
+  → Maya announces "You have a message from Carol"
+  → Senior says "Yes" → Maya reads text aloud / plays voice clip
+```
+
+### Server Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/chat/connect` | POST | Claude streaming with Connect-specific system prompt |
+| `/api/whatsapp/send` | POST | Send text or voice WhatsApp message via Twilio |
+| `/api/whatsapp/webhook` | POST | Receive incoming WhatsApp messages from Twilio |
+| `/api/whatsapp/events` | GET | SSE stream for real-time incoming message notifications |
+| `/api/whatsapp/media/:filename` | GET | Serve uploaded/downloaded voice files |
+
+### ACTION Tags
+
+Claude uses ACTION tags (alongside MOOD tags) to trigger client-side operations:
+
+```
+[ACTION:ADD_CONTACT name="Carol" phone="+14085551234"]
+[ACTION:SEND_TEXT to="Carol" message="Hi Carol, thinking of you!"]
+[ACTION:SEND_VOICE to="Carol"]
+[ACTION:PLAY_MESSAGE]
+[ACTION:CANCEL]
+```
+
+### Voice Messages
+
+- **Sending:** Browser records via MediaRecorder (WebM/Opus) → server converts to MP3 via ffmpeg → Twilio sends with `mediaUrl`
+- **Receiving:** Twilio webhook includes `MediaUrl0` (requires auth) → server downloads with Basic Auth, saves locally → client plays via AudioContext
+- ffmpeg required on the host machine (`brew install ffmpeg`)
+
+### Emoji Support
+
+- **Receiving:** `emoji-utils.js` converts emojis to natural spoken phrases (e.g., ❤️ → "with love") and sets avatar mood
+- **Sending:** Claude system prompt converts verbal descriptions ("with a heart") to actual emojis in SEND_TEXT messages
+- **Catch-all:** `sanitizeForTTS()` strips any remaining emoji Unicode ranges before ElevenLabs
+
+### ConnectStore (SQLite)
+
+Follows the same sql.js + localStorage pattern as `personalization-store.js`. Storage key: `'mayamind_connect_db'`.
+
+**Tables:**
+- `contacts` — id, name, phone (unique), created_at
+- `messages` — id, contact_id, direction (sent/received), type (text/voice), body, media_url, timestamp, read
+
+### Twilio Sandbox Setup
+
+1. Activate sandbox: Twilio Console → Messaging → Try it out → Send a WhatsApp message
+2. Each contact must opt in by sending `join <sandbox-code>` to `+14155238886`
+3. Configure webhook URL in Sandbox Settings → "When a message comes in" → `https://<ngrok-url>/api/whatsapp/webhook` (POST)
+4. Use a static ngrok domain (`ngrok http 3000 --url=your-domain.ngrok-free.dev`) to avoid URL changes between sessions
+
+### Key Implementation Details
+
+- ConnectSection follows same patterns as MayaSection: TalkingHead avatar, Web Speech API, echo detection, barge-in, TTS queue
+- SSE via EventSource for real-time incoming message notifications
+- Section lifecycle: mount/pause/resume/unmount with state preservation
+- Twilio client is optional — server starts without it if env vars are missing
 
 ## GitHub
 

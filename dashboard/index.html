@@ -56,8 +56,8 @@
         <div class="block-badge">Coming Soon</div>
       </div>
 
-      <!-- Connect with Loved Ones Block (Placeholder) -->
-      <div class="dashboard-block placeholder" data-section="connect">
+      <!-- Connect with Loved Ones Block -->
+      <div class="dashboard-block" data-section="connect">
         <div class="block-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -68,7 +68,7 @@
         </div>
         <div class="block-label">Connect</div>
         <div class="block-description">Loved Ones</div>
-        <div class="block-badge">Coming Soon</div>
+        <div class="block-status" id="connect-status"></div>
       </div>
     </div>
   </div>
@@ -124,22 +124,14 @@
       </div>
     </div>
 
-    <!-- Connect Section (Placeholder) -->
+    <!-- Connect Section -->
     <div id="connect-section" class="section hidden">
       <div class="section-header">
         <h2>Connect with Loved Ones</h2>
+        <div class="section-status" id="connect-section-status"></div>
       </div>
-      <div class="section-content placeholder-content">
-        <div class="placeholder-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-          </svg>
-        </div>
-        <h3>Coming Soon</h3>
-        <p>Stay connected with family and friends through WhatsApp messaging.</p>
+      <div id="connect-content" class="section-content">
+        <!-- ConnectSection will be mounted here -->
       </div>
     </div>
   </div>
