@@ -286,15 +286,24 @@ export class ConnectSection {
       return;
     }
 
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
     container.innerHTML = messages.map(m => {
       const time = new Date(m.timestamp + 'Z').toLocaleTimeString('en-US', {
         hour: 'numeric', minute: '2-digit',
       });
-      const isVoice = m.type === 'voice';
-      const content = isVoice ? '(voice message)' : (m.body || '');
+      let content;
+      if (m.type === 'image' && m.media_url) {
+        const caption = m.body ? `<div class="message-text">${esc(m.body)}</div>` : '';
+        content = `<img class="message-image" src="${esc(m.media_url)}" alt="Photo" loading="lazy">${caption}`;
+      } else if (m.type === 'voice') {
+        content = '<div class="message-text">(voice message)</div>';
+      } else {
+        content = `<div class="message-text">${esc(m.body || '')}</div>`;
+      }
       return `
         <div class="message-bubble ${m.direction}">
-          <div class="message-text">${content}</div>
+          ${content}
           <div class="message-time">${time}</div>
         </div>
       `;
@@ -877,6 +886,9 @@ export class ConnectSection {
         } else {
           await this.speakText(`${msg.contact_name} says: ${spokenText}`);
         }
+      } else if (msg.type === 'image') {
+        const caption = msg.body ? `, with the caption: ${msg.body}` : '';
+        await this.speakText(`${msg.contact_name} sent a photo${caption}.`);
       } else if (msg.type === 'voice' && msg.media_url) {
         await this.speakText(`Voice message from ${msg.contact_name}.`);
         // Play the voice audio (served from our local server)
@@ -952,7 +964,9 @@ export class ConnectSection {
     }
 
     // Determine message type
-    const type = (msg.mediaType && msg.mediaType.startsWith('audio')) ? 'voice' : 'text';
+    const type = (msg.mediaType && msg.mediaType.startsWith('audio')) ? 'voice'
+      : (msg.mediaType && msg.mediaType.startsWith('image')) ? 'image'
+      : 'text';
 
     // Save message
     this.store.addMessage(

@@ -207,6 +207,19 @@ html, body {
   color: #000;
 }
 
+.block-status.notification {
+  display: block;
+  background: var(--accent-pink);
+  color: #fff;
+  font-weight: 600;
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 /* ── Section Container ────────────────────────────────────────────────────── */
 
 .section-container {
@@ -725,6 +738,13 @@ html, body {
 
 .message-bubble.received .message-time {
   text-align: left;
+}
+
+.message-image {
+  max-width: 100%;
+  border-radius: 12px;
+  display: block;
+  margin-bottom: 4px;
 }
 
 /* Bottom bar */

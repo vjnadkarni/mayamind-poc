@@ -520,6 +520,10 @@ app.post('/api/whatsapp/webhook', async (req, res) => {
       const ext = mediaType.includes('ogg') ? '.ogg'
         : mediaType.includes('mp3') || mediaType.includes('mpeg') ? '.mp3'
         : mediaType.includes('mp4') ? '.mp4'
+        : mediaType.includes('jpeg') || mediaType.includes('jpg') ? '.jpg'
+        : mediaType.includes('png') ? '.png'
+        : mediaType.includes('gif') ? '.gif'
+        : mediaType.includes('webp') ? '.webp'
         : '.bin';
       const localFilename = `incoming-${Date.now()}${ext}`;
       const localPath = path.join(tempDir, localFilename);
@@ -563,7 +567,7 @@ app.post('/api/whatsapp/webhook', async (req, res) => {
   res.send('<Response></Response>');
 });
 
-// ── GET /api/whatsapp/media/:filename — Serve uploaded voice files ────────────
+// ── GET /api/whatsapp/media/:filename — Serve media files (audio, images) ─────
 app.get('/api/whatsapp/media/:filename', (req, res) => {
   const filePath = path.join(tempDir, req.params.filename);
   console.log(`[WhatsApp] Media fetch: ${req.params.filename} from ${req.get('user-agent') || 'unknown'}`);
@@ -571,9 +575,12 @@ app.get('/api/whatsapp/media/:filename', (req, res) => {
     console.warn(`[WhatsApp] Media file not found: ${filePath}`);
     return res.status(404).json({ error: 'File not found' });
   }
-  const ext = path.extname(req.params.filename);
-  const contentType = ext === '.mp3' ? 'audio/mpeg' : ext === '.ogg' ? 'audio/ogg' : 'audio/webm';
-  res.setHeader('Content-Type', contentType);
+  const ext = path.extname(req.params.filename).toLowerCase();
+  const CONTENT_TYPES = {
+    '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.webm': 'audio/webm', '.mp4': 'audio/mp4',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
+  };
+  res.setHeader('Content-Type', CONTENT_TYPES[ext] || 'application/octet-stream');
   res.sendFile(filePath);
 });
 

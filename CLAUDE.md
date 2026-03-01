@@ -274,7 +274,7 @@ node server/server.js
 
 | File | Purpose |
 |------|---------|
-| `dashboard/app.js` | Navigation controller, section lifecycle management |
+| `dashboard/app.js` | Navigation controller, section lifecycle, WhatsApp notification badges |
 | `dashboard/sections/maya/maya-section.js` | Full Maya conversation pipeline with personalization |
 | `dashboard/sections/connect/connect-section.js` | WhatsApp messaging: TalkingHead avatar, voice, Claude conversation, ACTION tags |
 | `dashboard/core/personalization-store.js` | SQLite database via sql.js with localStorage persistence |
@@ -398,7 +398,7 @@ Contact sends WhatsApp → Twilio webhook → POST /api/whatsapp/webhook
 | `/api/whatsapp/send` | POST | Send text or voice WhatsApp message via Twilio |
 | `/api/whatsapp/webhook` | POST | Receive incoming WhatsApp messages from Twilio |
 | `/api/whatsapp/events` | GET | SSE stream for real-time incoming message notifications |
-| `/api/whatsapp/media/:filename` | GET | Serve uploaded/downloaded voice files |
+| `/api/whatsapp/media/:filename` | GET | Serve uploaded/downloaded media files (audio, images) |
 
 ### ACTION Tags
 
@@ -418,6 +418,20 @@ Claude uses ACTION tags (alongside MOOD tags) to trigger client-side operations:
 - **Receiving:** Twilio webhook includes `MediaUrl0` (requires auth) → server downloads with Basic Auth, saves locally → client plays via AudioContext
 - ffmpeg required on the host machine (`brew install ffmpeg`)
 
+### Photo Messages (Incoming)
+
+- **Receiving:** Twilio webhook delivers image media (jpeg, png, gif, webp) → server downloads with auth, saves locally → SSE notifies client
+- **Display:** Inline image thumbnail in chat bubble with optional caption text below
+- **Voice announcement:** Maya says "Carol sent a photo" (with caption if present) during `playUnreadMessages()`
+- **Sending photos:** Deferred to native iPad app — requires PHPhotoLibrary API (not available in web browsers)
+
+### Dashboard Notification Badges
+
+- Global SSE listener in `app.js` runs on all pages (not just Connect section)
+- When a WhatsApp message arrives while user is NOT in Connect, a pink pulsing "N new" badge appears on the Connect dashboard tile
+- Badge clears automatically when user navigates into the Connect section
+- Uses `EventSource` on `/api/whatsapp/events` — same SSE endpoint as ConnectSection
+
 ### Emoji Support
 
 - **Receiving:** `emoji-utils.js` converts emojis to natural spoken phrases (e.g., ❤️ → "with love") and sets avatar mood
@@ -430,7 +444,7 @@ Follows the same sql.js + localStorage pattern as `personalization-store.js`. St
 
 **Tables:**
 - `contacts` — id, name, phone (unique), created_at
-- `messages` — id, contact_id, direction (sent/received), type (text/voice), body, media_url, timestamp, read
+- `messages` — id, contact_id, direction (sent/received), type (text/voice/image), body, media_url, timestamp, read
 
 ### Twilio Sandbox Setup
 

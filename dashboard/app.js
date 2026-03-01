@@ -23,6 +23,8 @@ const state = {
   sessionManager: null,
   ttsService: null,
   initialized: false,
+  unreadWhatsAppCount: 0,
+  globalSSE: null,
 };
 
 // ── DOM Elements ─────────────────────────────────────────────────────────────
@@ -70,6 +72,9 @@ async function init() {
   // Set up event listeners
   setupEventListeners();
 
+  // Start global SSE listener for WhatsApp notifications
+  setupGlobalSSE();
+
   // Update UI
   updateDashboardUI();
 
@@ -106,6 +111,71 @@ function setupEventListeners() {
   }, { once: true });
 }
 
+// ── Global SSE for WhatsApp Notifications ────────────────────────────────────
+
+function setupGlobalSSE() {
+  const SSE_URL = '/api/whatsapp/events';
+
+  function connect() {
+    if (state.globalSSE) return;
+
+    state.globalSSE = new EventSource(SSE_URL);
+
+    state.globalSSE.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'message' && state.currentSection !== 'connect') {
+          // Only count when NOT in the Connect section (ConnectSection handles its own)
+          state.unreadWhatsAppCount++;
+          updateConnectBadge();
+          console.log(`[Dashboard] WhatsApp notification: ${state.unreadWhatsAppCount} unread`);
+        }
+      } catch (err) {
+        // Ignore parse errors (heartbeats, etc.)
+      }
+    };
+
+    state.globalSSE.onerror = () => {
+      state.globalSSE?.close();
+      state.globalSSE = null;
+      setTimeout(connect, 5000);
+    };
+  }
+
+  connect();
+}
+
+function updateConnectBadge() {
+  const block = elements.blocks['connect'];
+  if (!block) return;
+
+  const statusEl = block.querySelector('#connect-status');
+  if (!statusEl) return;
+
+  if (state.unreadWhatsAppCount > 0) {
+    statusEl.textContent = `${state.unreadWhatsAppCount} new`;
+    statusEl.className = 'block-status notification';
+  } else {
+    // Restore normal status
+    const isActive = state.sessionManager.isActive('connect');
+    const isPaused = state.sessionManager.isPaused('connect');
+    if (isPaused) {
+      statusEl.textContent = 'Paused';
+      statusEl.className = 'block-status paused';
+    } else if (isActive) {
+      statusEl.textContent = 'Active';
+      statusEl.className = 'block-status active';
+    } else {
+      statusEl.className = 'block-status';
+    }
+  }
+}
+
+function clearConnectBadge() {
+  state.unreadWhatsAppCount = 0;
+  updateConnectBadge();
+}
+
 // ── Navigation ───────────────────────────────────────────────────────────────
 
 async function navigateToSection(sectionId) {
@@ -113,6 +183,11 @@ async function navigateToSection(sectionId) {
   if (!['maya', 'exercise', 'health', 'connect'].includes(sectionId)) return;
 
   console.log(`[Dashboard] Navigating to: ${sectionId}`);
+
+  // Clear notification badge when entering Connect section
+  if (sectionId === 'connect') {
+    clearConnectBadge();
+  }
 
   // Pause current section if active
   if (state.currentSection !== 'dashboard') {
@@ -343,10 +418,12 @@ function updateDashboardUI() {
     block.classList.toggle('active', isActive && !isPaused);
     block.classList.toggle('paused', isPaused);
 
-    // Update status badge
+    // Update status badge (skip if Connect has unread notifications)
     const statusEl = block.querySelector('.block-status');
     if (statusEl) {
-      if (isPaused) {
+      if (sectionId === 'connect' && state.unreadWhatsAppCount > 0) {
+        // Preserve notification badge — don't overwrite with session status
+      } else if (isPaused) {
         statusEl.textContent = 'Paused';
         statusEl.className = 'block-status paused';
       } else if (isActive) {
