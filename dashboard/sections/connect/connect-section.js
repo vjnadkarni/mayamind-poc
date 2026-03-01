@@ -8,6 +8,7 @@
 import { AudioManager } from '../../core/audio-manager.js';
 import { ConnectStore } from '../../core/connect-store.js';
 import { convertEmojisToSpeech, extractDominantEmojiMood, isEmojiOnly } from '../../core/emoji-utils.js';
+import { isMuteCommand, isUnmuteCommand } from '../../core/voice-commands.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ const State = {
 export class ConnectSection {
   constructor(options = {}) {
     this.ttsService = options.ttsService;
+    this.isMuted = options.isMuted || (() => false);
+    this.setMuted = options.setMuted || (() => {});
     this.onStateChange = options.onStateChange || null;
 
     // TalkingHead
@@ -368,6 +371,27 @@ export class ConnectSection {
       const avatarSpeaking = !!this.head?.isSpeaking;
       console.log('[Connect] Heard:', transcript, `(avatarSpeaking: ${avatarSpeaking})`);
       this.isListening = false;
+
+      // ── Global mute check (must be first) ──────────────────────────────
+      if (this.isMuted()) {
+        if (isUnmuteCommand(transcript)) {
+          console.log('[Connect] Unmute command detected');
+          this.setMuted(false);
+          this.speakText("I'm back! What can I help you with?");
+        } else {
+          console.log('[Connect] Muted, ignoring:', transcript.substring(0, 40));
+          setTimeout(() => this.startListening(), 300);
+        }
+        return;
+      }
+
+      if (isMuteCommand(transcript)) {
+        console.log('[Connect] Mute command detected');
+        this.speakText("I'll be quiet. Say unmute when you need me.").then(() => {
+          this.setMuted(true);
+        });
+        return;
+      }
 
       // Update transcript display
       if (this.els.transcript) this.els.transcript.textContent = transcript;

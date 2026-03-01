@@ -318,6 +318,82 @@ html, body {
   letter-spacing: 0.02em;
 }
 
+/* ── Mute Button ──────────────────────────────────────────────────────────── */
+
+.mute-btn {
+  position: fixed;
+  top: 16px;
+  right: 120px;
+  min-width: 88px;
+  height: 56px;
+  padding: 8px 16px;
+  background: rgba(30, 30, 46, 0.9);
+  border: 2px solid rgba(74, 255, 159, 0.4);
+  border-radius: 28px;
+  color: var(--accent-green);
+  cursor: pointer;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 200;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+  font-family: inherit;
+}
+
+.mute-btn:hover {
+  transform: scale(1.05);
+  background: rgba(30, 30, 46, 1);
+}
+
+.mute-btn:active {
+  transform: scale(0.95);
+}
+
+.mute-btn svg {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.mute-label {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.mute-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Muted state — red styling */
+.mute-btn.muted {
+  background: rgba(255, 74, 74, 0.15);
+  border-color: rgba(255, 74, 74, 0.6);
+  color: #ff4a4a;
+}
+
+.mute-btn.muted:hover {
+  background: rgba(255, 74, 74, 0.25);
+}
+
+/* Diagonal slash across mic when muted */
+.mute-btn.muted .mute-icon::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 30px;
+  height: 3px;
+  background: #ff4a4a;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  border-radius: 2px;
+}
+
 /* ── Placeholder Section (Full Screen) ───────────────────────────────────── */
 
 .placeholder-section {

@@ -25,6 +25,7 @@ const state = {
   initialized: false,
   unreadWhatsAppCount: 0,
   globalSSE: null,
+  isMuted: false,
 };
 
 // ── DOM Elements ─────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ const elements = {
   dashboard: null,
   sectionContainer: null,
   dashboardBtn: null,
+  muteBtn: null,
   loadingOverlay: null,
   loadingText: null,
   blocks: {},
@@ -48,6 +50,7 @@ async function init() {
   elements.dashboard = document.getElementById('dashboard');
   elements.sectionContainer = document.getElementById('section-container');
   elements.dashboardBtn = document.getElementById('dashboard-btn');
+  elements.muteBtn = document.getElementById('mute-btn');
   elements.loadingOverlay = document.getElementById('loading-overlay');
   elements.loadingText = document.getElementById('loading-text');
 
@@ -101,6 +104,11 @@ function setupEventListeners() {
   // Dashboard button (return from section)
   elements.dashboardBtn.addEventListener('click', () => {
     navigateToDashboard();
+  });
+
+  // Mute button toggle
+  elements.muteBtn.addEventListener('click', () => {
+    toggleMute();
   });
 
   // Resume AudioContext on first user interaction
@@ -174,6 +182,32 @@ function updateConnectBadge() {
 function clearConnectBadge() {
   state.unreadWhatsAppCount = 0;
   updateConnectBadge();
+}
+
+// ── Mute / Unmute ───────────────────────────────────────────────────────────
+
+function setMuted(muted) {
+  state.isMuted = muted;
+  updateMuteUI();
+  console.log(`[Dashboard] Mute: ${muted ? 'ON' : 'OFF'}`);
+}
+
+function toggleMute() {
+  setMuted(!state.isMuted);
+}
+
+function updateMuteUI() {
+  if (!elements.muteBtn) return;
+
+  if (state.isMuted) {
+    elements.muteBtn.classList.add('muted');
+    elements.muteBtn.querySelector('.mute-label').textContent = 'Unmute';
+    elements.muteBtn.title = 'Unmute microphone';
+  } else {
+    elements.muteBtn.classList.remove('muted');
+    elements.muteBtn.querySelector('.mute-label').textContent = 'Mute';
+    elements.muteBtn.title = 'Mute microphone';
+  }
 }
 
 // ── Navigation ───────────────────────────────────────────────────────────────
@@ -315,6 +349,8 @@ async function mountMayaSection(container, savedState) {
 
   const section = new MayaSection({
     ttsService: state.ttsService,
+    isMuted: () => state.isMuted,
+    setMuted: (val) => setMuted(val),
     onStateChange: (sectionState) => {
       state.sessionManager.saveState('maya', sectionState);
       state.sessionManager.recordActivity('maya');
@@ -374,6 +410,8 @@ async function mountConnectSection(container, savedState) {
 
   const section = new ConnectSection({
     ttsService: state.ttsService,
+    isMuted: () => state.isMuted,
+    setMuted: (val) => setMuted(val),
     onStateChange: (sectionState) => {
       state.sessionManager.saveState('connect', sectionState);
       state.sessionManager.recordActivity('connect');

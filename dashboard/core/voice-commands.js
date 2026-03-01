@@ -414,8 +414,56 @@ export function mightBeVoiceCommand(transcript) {
     /privacy/i,
     /learning/i,
     /delete/i,
-    /erase/i
+    /erase/i,
+    /mute/i,
+    /unmute/i,
+    /be quiet/i,
+    /stop listening/i,
+    /wake up/i,
+    /go to sleep/i
   ];
 
   return quickPatterns.some(p => p.test(transcript));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MUTE / UNMUTE COMMANDS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MUTE_PATTERNS = [
+  /^mute$/i,
+  /^maya,? mute$/i,
+  /^maya,? please mute$/i,
+  /^be quiet$/i,
+  /^stop listening$/i,
+  /^go to sleep$/i,
+];
+
+const UNMUTE_PATTERNS = [
+  /^unmute$/i,
+  /^maya,? unmute$/i,
+  /^wake up$/i,
+  /^i'?m back$/i,
+  /^start listening$/i,
+  /^maya$/i,
+];
+
+/**
+ * Check if transcript is a mute command.
+ * Uses anchored patterns so "don't mute the TV" won't trigger.
+ */
+export function isMuteCommand(transcript) {
+  if (!transcript) return false;
+  const normalized = transcript.toLowerCase().trim();
+  return MUTE_PATTERNS.some(p => p.test(normalized));
+}
+
+/**
+ * Check if transcript is an unmute command.
+ * Works even while globally muted (checked before all other processing).
+ */
+export function isUnmuteCommand(transcript) {
+  if (!transcript) return false;
+  const normalized = transcript.toLowerCase().trim();
+  return UNMUTE_PATTERNS.some(p => p.test(normalized));
 }

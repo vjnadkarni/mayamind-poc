@@ -261,7 +261,20 @@ The dashboard combines all features into a single iPad-optimized interface. Acce
 - 2x2 grid: Maya Conversation (active), Exercise Guidance (active), Health Monitoring (placeholder), Connect with Loved Ones (active)
 - Tap block → full-screen section view
 - Dashboard button always visible for single-tap return
+- Mute button (green mic / red mic-slash) next to dashboard button for voice mute/unmute
 - Session persists 15 minutes when navigating between sections
+
+### Global Mute/Unmute
+
+Prevents background audio (TV, family conversations) from being processed as user input.
+
+- **Voice mute:** "Mute", "Maya mute", "Be quiet", "Stop listening", "Go to sleep"
+- **Voice unmute:** "Unmute", "Maya unmute", "Wake up", "I'm back", "Start listening", or just "Maya"
+- **Button:** Tap the mic button (top-right, next to Dashboard) to toggle
+- When muted, speech recognition stays active but discards all input except unmute commands
+- Maya confirms: "I'll be quiet..." on mute, "I'm back!" on unmute (voice only, not button)
+- Mute state is global — persists across section navigation, resets on page reload
+- Anchored regex patterns (`^mute$`) prevent false triggers from sentences containing "mute"
 
 ### Running the Dashboard
 
@@ -274,12 +287,13 @@ node server/server.js
 
 | File | Purpose |
 |------|---------|
-| `dashboard/app.js` | Navigation controller, section lifecycle, WhatsApp notification badges |
+| `dashboard/app.js` | Navigation controller, section lifecycle, WhatsApp notification badges, global mute state |
 | `dashboard/sections/maya/maya-section.js` | Full Maya conversation pipeline with personalization |
 | `dashboard/sections/connect/connect-section.js` | WhatsApp messaging: TalkingHead avatar, voice, Claude conversation, ACTION tags |
 | `dashboard/core/personalization-store.js` | SQLite database via sql.js with localStorage persistence |
 | `dashboard/core/connect-store.js` | SQLite store for contacts and message history |
 | `dashboard/core/emoji-utils.js` | Emoji-to-speech conversion and mood extraction for voice interface |
+| `dashboard/core/voice-commands.js` | Voice command detection incl. mute/unmute |
 | `dashboard/core/consent-manager.js` | Three-tier consent flow management |
 | `dashboard/core/extraction-pipeline.js` | Claude-based personality signal extraction |
 | `dashboard/components/consent-modal.js` | "What Maya Knows" transparency modal |

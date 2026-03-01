@@ -9,7 +9,7 @@
 import { AudioManager } from '../../core/audio-manager.js';
 import { personalization } from '../../core/personalization-store.js';
 import { consentManager } from '../../core/consent-manager.js';
-import { detectVoiceCommand, handleVoiceCommand, mightBeVoiceCommand } from '../../core/voice-commands.js';
+import { detectVoiceCommand, handleVoiceCommand, mightBeVoiceCommand, isMuteCommand, isUnmuteCommand } from '../../core/voice-commands.js';
 import { processSessionEnd, extractInlinePreferences } from '../../core/extraction-pipeline.js';
 import { checkContentSafety } from '../../core/content-safety.js';
 import { showWhatMayaKnows } from '../../components/consent-modal.js';
@@ -80,6 +80,8 @@ const State = {
 export class MayaSection {
   constructor(options = {}) {
     this.ttsService = options.ttsService;
+    this.isMuted = options.isMuted || (() => false);
+    this.setMuted = options.setMuted || (() => {});
     this.onStateChange = options.onStateChange || null;
 
     // TalkingHead instance
@@ -656,6 +658,28 @@ export class MayaSection {
       const avatarSpeaking = !!this.head?.isSpeaking;
       console.log('[Maya] Heard:', transcript, `(confidence: ${(confidence * 100).toFixed(0)}%, state: ${this.state}, avatarSpeaking: ${avatarSpeaking})`);
       this.isListening = false;
+
+      // ── Global mute check (must be first) ──────────────────────────────
+      if (this.isMuted()) {
+        if (isUnmuteCommand(transcript)) {
+          console.log('[Maya] Unmute command detected');
+          this.setMuted(false);
+          this.speakResponse("I'm back! What can I help you with?");
+        } else {
+          console.log('[Maya] Muted, ignoring:', transcript.substring(0, 40));
+          setTimeout(() => this.startListening(), 300);
+        }
+        return;
+      }
+
+      if (isMuteCommand(transcript)) {
+        console.log('[Maya] Mute command detected');
+        this.appendTranscript('user', transcript);
+        this.speakResponse("I'll be quiet. Say unmute when you need me.").then(() => {
+          this.setMuted(true);
+        });
+        return;
+      }
 
       // Check if avatar is actually speaking (more reliable than state flag)
       if (avatarSpeaking) {
