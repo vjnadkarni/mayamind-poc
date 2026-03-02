@@ -14,6 +14,12 @@
     <div class="dashboard-header">
       <h1>MayaMind</h1>
       <p class="subtitle">Your wellness companion</p>
+      <button class="settings-gear-btn" id="dashboard-gear" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
     </div>
 
     <div class="dashboard-grid">
@@ -44,8 +50,8 @@
         <div class="block-status" id="exercise-status"></div>
       </div>
 
-      <!-- Health Monitoring Block (Placeholder) -->
-      <div class="dashboard-block placeholder" data-section="health">
+      <!-- Health Monitoring Block -->
+      <div class="dashboard-block" data-section="health">
         <div class="block-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
@@ -53,7 +59,7 @@
         </div>
         <div class="block-label">Health</div>
         <div class="block-description">Monitoring</div>
-        <div class="block-badge">Coming Soon</div>
+        <div class="block-status" id="health-status"></div>
       </div>
 
       <!-- Connect with Loved Ones Block -->
@@ -99,10 +105,19 @@
       <span class="mute-label">Mute</span>
     </button>
 
+    <!-- Settings Button (visible in sections, rightmost) -->
+    <button id="section-settings-btn" class="section-settings-btn" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+
     <!-- Maya Section -->
     <div id="maya-section" class="section hidden">
       <div class="section-header">
         <h2>Maya Conversation</h2>
+
         <div class="section-status" id="maya-section-status"></div>
       </div>
       <div id="maya-content" class="section-content">
@@ -114,6 +129,7 @@
     <div id="exercise-section" class="section hidden">
       <div class="section-header">
         <h2>Exercise Guidance</h2>
+
         <div class="section-status" id="exercise-section-status"></div>
       </div>
       <div id="exercise-content" class="section-content">
@@ -121,19 +137,15 @@
       </div>
     </div>
 
-    <!-- Health Section (Placeholder) -->
+    <!-- Health Monitoring Section -->
     <div id="health-section" class="section hidden">
       <div class="section-header">
         <h2>Health Monitoring</h2>
+
+        <div class="section-status" id="health-section-status"></div>
       </div>
-      <div class="section-content placeholder-content">
-        <div class="placeholder-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-        </div>
-        <h3>Coming Soon</h3>
-        <p>Connect your Apple Watch to track heart rate, steps, and other health metrics.</p>
+      <div id="health-content" class="section-content">
+        <!-- HealthSection mounts here -->
       </div>
     </div>
 
@@ -141,10 +153,76 @@
     <div id="connect-section" class="section hidden">
       <div class="section-header">
         <h2>Connect with Loved Ones</h2>
+
         <div class="section-status" id="connect-section-status"></div>
       </div>
       <div id="connect-content" class="section-content">
         <!-- ConnectSection will be mounted here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Overlay -->
+  <div id="settings-overlay" class="settings-overlay hidden">
+    <div class="settings-panel">
+      <h2>Settings</h2>
+      <div class="settings-form">
+        <label>Name
+          <input type="text" id="settings-name" placeholder="Your name" autocomplete="name">
+        </label>
+        <label>Phone
+          <input type="tel" id="settings-phone" placeholder="Phone number" autocomplete="tel">
+        </label>
+        <label>Email
+          <input type="email" id="settings-email" placeholder="Email address" autocomplete="email">
+        </label>
+        <label>Date of Birth
+          <input type="date" id="settings-dob">
+        </label>
+        <label>Biological Sex
+          <select id="settings-sex">
+            <option value="">Select...</option>
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+          </select>
+        </label>
+        <label>Street Address
+          <input type="text" id="settings-street" placeholder="Street address" autocomplete="street-address">
+        </label>
+        <div class="settings-row">
+          <label>City
+            <input type="text" id="settings-city" placeholder="City" autocomplete="address-level2">
+          </label>
+          <label>State
+            <select id="settings-state" autocomplete="address-level1">
+              <option value="">Select...</option>
+              <option value="AL">AL</option><option value="AK">AK</option><option value="AZ">AZ</option>
+              <option value="AR">AR</option><option value="CA">CA</option><option value="CO">CO</option>
+              <option value="CT">CT</option><option value="DE">DE</option><option value="FL">FL</option>
+              <option value="GA">GA</option><option value="HI">HI</option><option value="ID">ID</option>
+              <option value="IL">IL</option><option value="IN">IN</option><option value="IA">IA</option>
+              <option value="KS">KS</option><option value="KY">KY</option><option value="LA">LA</option>
+              <option value="ME">ME</option><option value="MD">MD</option><option value="MA">MA</option>
+              <option value="MI">MI</option><option value="MN">MN</option><option value="MS">MS</option>
+              <option value="MO">MO</option><option value="MT">MT</option><option value="NE">NE</option>
+              <option value="NV">NV</option><option value="NH">NH</option><option value="NJ">NJ</option>
+              <option value="NM">NM</option><option value="NY">NY</option><option value="NC">NC</option>
+              <option value="ND">ND</option><option value="OH">OH</option><option value="OK">OK</option>
+              <option value="OR">OR</option><option value="PA">PA</option><option value="RI">RI</option>
+              <option value="SC">SC</option><option value="SD">SD</option><option value="TN">TN</option>
+              <option value="TX">TX</option><option value="UT">UT</option><option value="VT">VT</option>
+              <option value="VA">VA</option><option value="WA">WA</option><option value="WV">WV</option>
+              <option value="WI">WI</option><option value="WY">WY</option><option value="DC">DC</option>
+            </select>
+          </label>
+          <label>Zip Code
+            <input type="text" id="settings-zip" placeholder="Zip" autocomplete="postal-code">
+          </label>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button id="settings-cancel">Cancel</button>
+        <button id="settings-save">Save</button>
       </div>
     </div>
   </div>

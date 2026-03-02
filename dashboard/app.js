@@ -9,6 +9,7 @@ import { SessionManager } from './core/session-manager.js';
 import { AudioManager } from './core/audio-manager.js';
 import { TTSService } from './core/tts-service.js';
 import { connectStore } from './core/connect-store.js';
+import { preferencesSync } from './core/preferences-sync.js';
 
 // Section modules (lazy loaded)
 let MayaSection = null;
@@ -38,6 +39,7 @@ const elements = {
   muteBtn: null,
   loadingOverlay: null,
   loadingText: null,
+  settingsOverlay: null,
   blocks: {},
   sections: {},
 };
@@ -54,6 +56,7 @@ async function init() {
   elements.muteBtn = document.getElementById('mute-btn');
   elements.loadingOverlay = document.getElementById('loading-overlay');
   elements.loadingText = document.getElementById('loading-text');
+  elements.settingsOverlay = document.getElementById('settings-overlay');
 
   // Cache section elements
   elements.sections = {
@@ -75,6 +78,12 @@ async function init() {
 
   // Initialize ConnectStore (needed to save messages received while not in Connect section)
   await connectStore.initialize();
+
+  // Migrate old health profile to unified settings
+  migrateHealthProfile();
+
+  // Load persistent preferences from Supabase (appearance + user settings)
+  await loadPreferencesFromCloud();
 
   // Set up event listeners
   setupEventListeners();
@@ -121,6 +130,36 @@ function setupEventListeners() {
       await AudioManager.resume();
     }
   }, { once: true });
+
+  // Settings gear buttons (dashboard header + floating section button)
+  document.querySelectorAll('.settings-gear-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openSettings();
+    });
+  });
+
+  document.getElementById('section-settings-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openSettings();
+  });
+
+  // Settings save / cancel
+  document.getElementById('settings-save').addEventListener('click', () => {
+    saveSettingsFromForm();
+    closeSettings();
+  });
+
+  document.getElementById('settings-cancel').addEventListener('click', () => {
+    closeSettings();
+  });
+
+  // Close settings on overlay click (outside panel)
+  elements.settingsOverlay.addEventListener('click', (e) => {
+    if (e.target === elements.settingsOverlay) {
+      closeSettings();
+    }
+  });
 }
 
 // ── Global SSE for WhatsApp Notifications ────────────────────────────────────
@@ -387,6 +426,10 @@ async function mountMayaSection(container, savedState) {
       state.sessionManager.saveState('maya', sectionState);
       state.sessionManager.recordActivity('maya');
     },
+    onAppearanceChange: (appearance) => {
+      preferencesSync.save('maya_appearance', appearance);
+    },
+    cloudAppearance: getCloudAppearance('maya_appearance'),
   });
 
   await section.mount(container, savedState);
@@ -404,6 +447,8 @@ async function mountExerciseSection(container, savedState) {
 
   const section = new ExerciseSection({
     ttsService: state.ttsService,
+    isMuted: () => state.isMuted,
+    setMuted: (val) => setMuted(val),
     onStateChange: (sectionState) => {
       state.sessionManager.saveState('exercise', sectionState);
       state.sessionManager.recordActivity('exercise');
@@ -417,7 +462,7 @@ async function mountExerciseSection(container, savedState) {
   state.sections.exercise = section;
 }
 
-// ── Health Section (Placeholder) ─────────────────────────────────────────────
+// ── Health Section ───────────────────────────────────────────────────────────
 
 async function mountHealthSection(container, savedState) {
   // Lazy load Health section module
@@ -426,7 +471,16 @@ async function mountHealthSection(container, savedState) {
     HealthSection = module.HealthSection;
   }
 
-  const section = new HealthSection();
+  const section = new HealthSection({
+    ttsService: state.ttsService,
+    isMuted: () => state.isMuted,
+    setMuted: (val) => setMuted(val),
+    onStateChange: (sectionState) => {
+      state.sessionManager.saveState('health', sectionState);
+      state.sessionManager.recordActivity('health');
+    },
+  });
+
   await section.mount(container, savedState);
   state.sections.health = section;
 }
@@ -448,6 +502,10 @@ async function mountConnectSection(container, savedState) {
       state.sessionManager.saveState('connect', sectionState);
       state.sessionManager.recordActivity('connect');
     },
+    onAppearanceChange: (appearance) => {
+      preferencesSync.save('connect_appearance', appearance);
+    },
+    cloudAppearance: getCloudAppearance('connect_appearance'),
   });
 
   await section.mount(container, savedState);
@@ -539,6 +597,101 @@ function showToast(message) {
     toast.style.animation = 'fadeOut 0.3s ease';
     setTimeout(() => toast.remove(), 300);
   }, 3000);
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+const SETTINGS_KEY = 'mayamind_settings';
+const DEFAULT_USER_SETTINGS = { name: '', phone: '', email: '', dob: '', sex: '' };
+
+function loadSettings() {
+  try {
+    const stored = localStorage.getItem(SETTINGS_KEY);
+    return stored ? { ...DEFAULT_USER_SETTINGS, ...JSON.parse(stored) } : { ...DEFAULT_USER_SETTINGS };
+  } catch {
+    return { ...DEFAULT_USER_SETTINGS };
+  }
+}
+
+function saveSettings(data) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
+}
+
+function migrateHealthProfile() {
+  const oldKey = 'mayamind_health_profile';
+  try {
+    const old = localStorage.getItem(oldKey);
+    if (!old) return;
+
+    const profile = JSON.parse(old);
+    const current = loadSettings();
+
+    // Only migrate if settings don't already have these values
+    if (!current.dob && profile.dob) current.dob = profile.dob;
+    if (!current.sex && profile.sex) current.sex = profile.sex;
+
+    saveSettings(current);
+    localStorage.removeItem(oldKey);
+    console.log('[Dashboard] Migrated health profile to settings');
+  } catch (err) {
+    console.error('[Dashboard] Health profile migration failed:', err);
+  }
+}
+
+function openSettings() {
+  const settings = loadSettings();
+  document.getElementById('settings-name').value = settings.name || '';
+  document.getElementById('settings-phone').value = settings.phone || '';
+  document.getElementById('settings-email').value = settings.email || '';
+  document.getElementById('settings-dob').value = settings.dob || '';
+  document.getElementById('settings-sex').value = settings.sex || '';
+  document.getElementById('settings-street').value = settings.street || '';
+  document.getElementById('settings-city').value = settings.city || '';
+  document.getElementById('settings-state').value = settings.state || '';
+  document.getElementById('settings-zip').value = settings.zip || '';
+  elements.settingsOverlay.classList.remove('hidden');
+}
+
+function closeSettings() {
+  elements.settingsOverlay.classList.add('hidden');
+}
+
+function saveSettingsFromForm() {
+  const data = {
+    name: document.getElementById('settings-name').value.trim(),
+    phone: document.getElementById('settings-phone').value.trim(),
+    email: document.getElementById('settings-email').value.trim(),
+    dob: document.getElementById('settings-dob').value,
+    sex: document.getElementById('settings-sex').value,
+    street: document.getElementById('settings-street').value.trim(),
+    city: document.getElementById('settings-city').value.trim(),
+    state: document.getElementById('settings-state').value.trim(),
+    zip: document.getElementById('settings-zip').value.trim(),
+  };
+  saveSettings(data);
+  preferencesSync.save('user_settings', data);
+  console.log('[Dashboard] Settings saved');
+}
+
+// ── Cloud Preferences ─────────────────────────────────────────────────────────
+
+async function loadPreferencesFromCloud() {
+  const prefs = await preferencesSync.loadAll();
+
+  // Apply user settings (merge with localStorage — cloud wins)
+  if (prefs.user_settings) {
+    const local = loadSettings();
+    const merged = { ...local, ...prefs.user_settings };
+    saveSettings(merged);
+    console.log('[Dashboard] User settings loaded from Supabase');
+  }
+
+  // Store cloud appearance preferences in state for sections to pick up on mount
+  state.cloudPreferences = prefs;
+}
+
+function getCloudAppearance(category) {
+  return state.cloudPreferences?.[category] || null;
 }
 
 // ── Start Application ────────────────────────────────────────────────────────

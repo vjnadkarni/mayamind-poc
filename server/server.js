@@ -140,6 +140,63 @@ app.post('/api/setup-templates-table', async (req, res) => {
   }
 });
 
+// ── POST /api/setup-preferences-table — Create Supabase preferences table ───
+app.post('/api/setup-preferences-table', async (req, res) => {
+  const { SUPABASE_URL, SUPABASE_SERVICE_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    return res.status(500).json({ error: 'Supabase not configured' });
+  }
+
+  const sql = `
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      device_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      preferences JSONB NOT NULL DEFAULT '{}',
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (device_id, category)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_preferences_device ON user_preferences(device_id);
+
+    ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
+
+    DROP POLICY IF EXISTS "Allow anonymous access" ON user_preferences;
+    CREATE POLICY "Allow anonymous access" ON user_preferences
+      FOR ALL
+      USING (true)
+      WITH CHECK (true);
+  `;
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/exec_sql`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ query: sql }),
+    });
+
+    if (!response.ok) {
+      return res.json({
+        success: false,
+        message: 'Please create the table manually in Supabase SQL Editor',
+        sql: sql.trim(),
+      });
+    }
+
+    res.json({ success: true, message: 'Preferences table created successfully' });
+  } catch (err) {
+    console.error('Setup preferences table error:', err);
+    res.json({
+      success: false,
+      message: 'Please create the table manually in Supabase SQL Editor',
+      sql: sql.trim(),
+    });
+  }
+});
+
 // Serve exercise POC from exercise-poc/ (separate mini-project)
 app.use('/exercise', express.static(path.join(__dirname, '..', 'exercise-poc')));
 
@@ -686,6 +743,391 @@ app.post('/api/chat/connect', async (req, res) => {
   }
 });
 
+// ── Health Chat — System prompt + endpoint ──────────────────────────────────────
+
+function buildHealthSystemPrompt(timezone, vitals, withingsData) {
+  const tz = timezone || 'America/Los_Angeles';
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: tz,
+  });
+  const timeStr = now.toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit', timeZone: tz,
+  });
+
+  // Format current vitals for context
+  let vitalsContext = 'No health data available yet.';
+  if (vitals) {
+    const v = vitals.vitals || {};
+    const parts = [];
+    if (v.heartRate?.value != null) parts.push(`Heart Rate: ${Math.round(v.heartRate.value)} BPM`);
+    if (v.hrv?.value != null) parts.push(`HRV: ${Math.round(v.hrv.value)} ms`);
+    if (v.spo2?.value != null) parts.push(`SpO2: ${Math.round(v.spo2.value)} percent`);
+    if (v.steps?.value != null) parts.push(`Steps today: ${v.steps.value}`);
+    if (v.moveMinutes?.value != null) parts.push(`Move minutes: ${Math.round(v.moveMinutes.value)}`);
+    if (v.exerciseMinutes?.value != null) parts.push(`Exercise minutes: ${Math.round(v.exerciseMinutes.value)}`);
+    if (vitals.sleep) {
+      const hrs = Math.floor(vitals.sleep.totalHours);
+      const mins = Math.round((vitals.sleep.totalHours - hrs) * 60);
+      parts.push(`Last night sleep: ${hrs} hours ${mins} minutes`);
+    }
+    if (parts.length > 0) vitalsContext = parts.join('\n');
+  }
+
+  let bodyContext = '';
+  if (withingsData?.measures) {
+    const m = withingsData.measures;
+    const bodyParts = [];
+    if (m.weight) bodyParts.push(`Weight: ${(m.weight.value * 2.20462).toFixed(1)} lbs`);
+    if (m.fatPercent) bodyParts.push(`Body fat: ${m.fatPercent.value.toFixed(1)} percent`);
+    if (m.muscleMass) bodyParts.push(`Muscle mass: ${(m.muscleMass.value * 2.20462).toFixed(1)} lbs`);
+    if (bodyParts.length > 0) bodyContext = '\n\nBody Composition:\n' + bodyParts.join('\n');
+  }
+
+  return `You are Maya, a warm and caring wellness companion for seniors. You are currently in the Health Monitoring section, helping the user understand their health data from their Apple Watch and smart scale.
+
+Current date and time: ${dateStr}, ${timeStr} (${tz}).
+
+CURRENT HEALTH DATA:
+${vitalsContext}${bodyContext}
+
+RULES:
+- Short responses (2-3 sentences maximum). This is a spoken conversation.
+- Never use markdown, bullet points, or special formatting. Your words will be spoken aloud.
+- Never use symbols like degrees, percent sign, or other special characters — always spell them out.
+- Begin every response with a mood tag [MOOD:xxx] where xxx is one of: neutral, happy, angry, sad, fear, disgust, love, sleep.
+- Be warm, encouraging, and reassuring. Many seniors worry about health numbers.
+- When discussing vitals, provide context (e.g., "Your heart rate of 72 is right in the healthy range").
+- NEVER diagnose medical conditions. If the user asks medical questions, gently suggest discussing with their doctor.
+- If asked about vitals not currently available, say they are not being tracked right now.
+- Proactively offer helpful observations about the data when asked.
+- If the user asks about trends, refer to what you can see in the current data.
+
+Choose the mood that best serves the user emotionally:
+- Good health data → [MOOD:happy]
+- User is worried → [MOOD:neutral] (calm, reassuring)
+- User is confused → [MOOD:neutral] (patient, explaining)
+- User is happy about progress → [MOOD:happy]
+- Default → [MOOD:neutral]
+
+The tag must be the very first text, followed by a space, then your spoken words.`;
+}
+
+app.post('/api/chat/health', async (req, res) => {
+  const { messages, timezone, vitals, withingsData } = req.body;
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages array is required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    const stream = anthropic.messages.stream({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 300,
+      system: buildHealthSystemPrompt(timezone, vitals, withingsData),
+      messages,
+    });
+
+    stream.on('text', (text) => {
+      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    });
+
+    stream.on('error', (err) => {
+      console.error('[Health Chat] stream error:', err.message);
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    });
+
+    await stream.finalMessage();
+    res.write('data: [DONE]\n\n');
+    res.end();
+  } catch (err) {
+    console.error('[Health Chat] error:', err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+// ── Health Monitoring — In-memory vitals store ──────────────────────────────────
+const healthVitals = {
+  latest: null,           // Most recent vitals payload from iPhone companion
+  history: [],            // Ring buffer of readings (max 60, ~1 per minute)
+  maxHistory: 60,
+  withingsTokens: null,   // { accessToken, refreshToken, expiresAt }
+  withingsData: null,     // Latest Withings body composition
+};
+
+// ── Health SSE clients ────────────────────────────────────────────────────────
+const healthSSEClients = new Set();
+
+function broadcastHealthUpdate(data) {
+  const msg = `data: ${JSON.stringify(data)}\n\n`;
+  for (const client of healthSSEClients) {
+    client.write(msg);
+  }
+}
+
+// ── GET /api/health/events — SSE stream for real-time health updates ─────────
+app.get('/api/health/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  healthSSEClients.add(res);
+
+  // Send current state immediately so client doesn't start blank
+  if (healthVitals.latest) {
+    res.write(`data: ${JSON.stringify({ type: 'vitals', ...healthVitals.latest })}\n\n`);
+  }
+  if (healthVitals.withingsData) {
+    res.write(`data: ${JSON.stringify({ type: 'withings', ...healthVitals.withingsData })}\n\n`);
+  }
+
+  const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), 30000);
+  req.on('close', () => {
+    healthSSEClients.delete(res);
+    clearInterval(heartbeat);
+  });
+});
+
+// ── POST /api/health/vitals — Receive vitals from iPhone companion ──────────
+app.post('/api/health/vitals', (req, res) => {
+  const payload = req.body;
+  if (!payload || !payload.timestamp) {
+    return res.status(400).json({ error: 'Missing timestamp' });
+  }
+
+  healthVitals.latest = payload;
+  healthVitals.history.push({ ...payload, receivedAt: Date.now() });
+  if (healthVitals.history.length > healthVitals.maxHistory) {
+    healthVitals.history.shift();
+  }
+
+  broadcastHealthUpdate({ type: 'vitals', ...payload });
+  console.log(`[Health] Received vitals from ${payload.deviceName || 'unknown'}`);
+  res.json({ ok: true });
+});
+
+// ── GET /api/health/vitals/latest — iPad pulls current state ─────────────────
+app.get('/api/health/vitals/latest', (req, res) => {
+  res.json({
+    latest: healthVitals.latest,
+    history: healthVitals.history,
+    withings: healthVitals.withingsData,
+  });
+});
+
+// ── GET /api/health/test — Generate mock vitals for UI testing ──────────────
+app.get('/api/health/test', (req, res) => {
+  const now = new Date().toISOString();
+  const mockPayload = {
+    timestamp: now,
+    deviceName: 'Test Device',
+    vitals: {
+      heartRate: { value: 68 + Math.floor(Math.random() * 15), unit: 'BPM', timestamp: now, range24h: { min: 55 + Math.floor(Math.random() * 5), max: 120 + Math.floor(Math.random() * 30) } },
+      hrv: { value: 35 + Math.floor(Math.random() * 25), unit: 'ms', timestamp: now, range24h: { min: 18 + Math.floor(Math.random() * 10), max: 65 + Math.floor(Math.random() * 20) } },
+      spo2: { value: 95 + Math.floor(Math.random() * 5), unit: '%', timestamp: now, range24h: { min: 93 + Math.floor(Math.random() * 3), max: 98 + Math.floor(Math.random() * 2) } },
+      steps: { value: 2000 + Math.floor(Math.random() * 5000), unit: 'count', sinceDate: now.split('T')[0] + 'T00:00:00' },
+      moveMinutes: { value: 20 + Math.floor(Math.random() * 60), unit: 'min', sinceDate: now.split('T')[0] + 'T00:00:00' },
+      exerciseMinutes: { value: 5 + Math.floor(Math.random() * 30), unit: 'min', sinceDate: now.split('T')[0] + 'T00:00:00' },
+    },
+    sleep: {
+      totalHours: 6.5 + Math.random() * 2,
+      stages: { deep: 0.8 + Math.random(), core: 3 + Math.random() * 2, rem: 1 + Math.random(), awake: 0.2 + Math.random() * 0.5 },
+      startTime: '2026-02-28T22:30:00',
+      endTime: '2026-03-01T06:00:00',
+    },
+  };
+
+  // Store and broadcast like a real push
+  healthVitals.latest = mockPayload;
+  healthVitals.history.push({ ...mockPayload, receivedAt: Date.now() });
+  if (healthVitals.history.length > healthVitals.maxHistory) {
+    healthVitals.history.shift();
+  }
+  broadcastHealthUpdate({ type: 'vitals', ...mockPayload });
+
+  // Also broadcast mock Withings body composition if not already connected
+  if (!healthVitals.withingsData) {
+    const mockWithings = {
+      measures: {
+        weight: { value: 72 + Math.random() * 10, timestamp: now },
+        fatPercent: { value: 18 + Math.random() * 12, timestamp: now },
+        visceralFat: { value: 5 + Math.floor(Math.random() * 10), timestamp: now },
+        boneMass: { value: 2.5 + Math.random() * 1.5, timestamp: now },
+        muscleMass: { value: 28 + Math.random() * 8, timestamp: now },
+      },
+      fetchedAt: now,
+    };
+    healthVitals.withingsData = mockWithings;
+    broadcastHealthUpdate({ type: 'withings', ...mockWithings });
+  }
+
+  console.log('[Health] Sent mock vitals + body composition');
+  res.json({ ok: true, mock: mockPayload });
+});
+
+// ── Withings OAuth2 (optional — only if configured) ─────────────────────────
+const WITHINGS_CLIENT_ID = process.env.WITHINGS_CLIENT_ID;
+const WITHINGS_CLIENT_SECRET = process.env.WITHINGS_CLIENT_SECRET;
+const withingsConfigured = !!(WITHINGS_CLIENT_ID && WITHINGS_CLIENT_SECRET);
+if (withingsConfigured) console.log('[Withings] Client configured');
+
+// GET /api/health/withings/status — Check if Withings is configured
+app.get('/api/health/withings/status', (req, res) => {
+  res.json({
+    configured: withingsConfigured,
+    connected: !!(healthVitals.withingsTokens && healthVitals.withingsTokens.accessToken),
+  });
+});
+
+// GET /api/health/withings/auth — Start OAuth2 flow
+app.get('/api/health/withings/auth', (req, res) => {
+  if (!withingsConfigured) {
+    return res.status(500).json({ error: 'Withings not configured' });
+  }
+  const ngrokUrl = process.env.NGROK_URL || `${req.protocol}://${req.get('host')}`;
+  const redirectUri = `${ngrokUrl}/api/health/withings/callback`;
+  const authUrl = `https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id=${WITHINGS_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user.metrics&state=mayamind`;
+  res.redirect(authUrl);
+});
+
+// GET /api/health/withings/callback — Handle OAuth2 callback
+app.get('/api/health/withings/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('Missing authorization code');
+
+  const ngrokUrl = process.env.NGROK_URL || `${req.protocol}://${req.get('host')}`;
+  const redirectUri = `${ngrokUrl}/api/health/withings/callback`;
+
+  try {
+    const tokenRes = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        action: 'requesttoken',
+        grant_type: 'authorization_code',
+        client_id: WITHINGS_CLIENT_ID,
+        client_secret: WITHINGS_CLIENT_SECRET,
+        code,
+        redirect_uri: redirectUri,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+
+    if (tokenData.status !== 0) {
+      console.error('[Withings] Token exchange failed:', tokenData);
+      return res.status(400).send(`Withings error: ${JSON.stringify(tokenData)}`);
+    }
+
+    healthVitals.withingsTokens = {
+      accessToken: tokenData.body.access_token,
+      refreshToken: tokenData.body.refresh_token,
+      expiresAt: Date.now() + tokenData.body.expires_in * 1000,
+    };
+    console.log('[Withings] OAuth tokens obtained');
+
+    // Redirect back to dashboard health section
+    res.redirect('/dashboard#health');
+  } catch (err) {
+    console.error('[Withings] OAuth callback error:', err.message);
+    res.status(500).send('OAuth error: ' + err.message);
+  }
+});
+
+// GET /api/health/withings/data — Fetch latest body composition
+app.get('/api/health/withings/data', async (req, res) => {
+  if (!healthVitals.withingsTokens || !healthVitals.withingsTokens.accessToken) {
+    return res.status(401).json({ error: 'Withings not connected' });
+  }
+
+  // Refresh token if expired
+  if (Date.now() > healthVitals.withingsTokens.expiresAt - 60000) {
+    try {
+      const refreshRes = await fetch('https://wbsapi.withings.net/v2/oauth2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          action: 'requesttoken',
+          grant_type: 'refresh_token',
+          client_id: WITHINGS_CLIENT_ID,
+          client_secret: WITHINGS_CLIENT_SECRET,
+          refresh_token: healthVitals.withingsTokens.refreshToken,
+        }),
+      });
+      const refreshData = await refreshRes.json();
+      if (refreshData.status === 0) {
+        healthVitals.withingsTokens = {
+          accessToken: refreshData.body.access_token,
+          refreshToken: refreshData.body.refresh_token,
+          expiresAt: Date.now() + refreshData.body.expires_in * 1000,
+        };
+        console.log('[Withings] Token refreshed');
+      } else {
+        console.error('[Withings] Token refresh failed:', refreshData);
+        return res.status(401).json({ error: 'Token refresh failed' });
+      }
+    } catch (err) {
+      console.error('[Withings] Token refresh error:', err.message);
+      return res.status(500).json({ error: 'Token refresh error' });
+    }
+  }
+
+  try {
+    const measRes = await fetch('https://wbsapi.withings.net/measure?action=getmeas&meastypes=1,6,8,76,88,170&category=1&lastupdate=' + Math.floor((Date.now() - 30 * 24 * 3600 * 1000) / 1000), {
+      headers: { Authorization: `Bearer ${healthVitals.withingsTokens.accessToken}` },
+    });
+    const measData = await measRes.json();
+
+    if (measData.status !== 0) {
+      console.error('[Withings] Measure API error:', measData);
+      return res.status(400).json({ error: 'Withings API error' });
+    }
+
+    // Parse Withings measure groups — extract latest values
+    // meastypes: 1=weight, 6=fat ratio, 8=fat mass, 76=muscle mass, 88=bone mass, 170=visceral fat
+    const measures = {};
+    const typeNames = { 1: 'weight', 6: 'fatPercent', 8: 'fatMass', 76: 'muscleMass', 88: 'boneMass', 170: 'visceralFat' };
+    const groups = measData.body?.measuregrps || [];
+
+    for (const group of groups) {
+      for (const m of group.measures || []) {
+        const name = typeNames[m.type];
+        if (name && !measures[name]) {
+          measures[name] = {
+            value: m.value * Math.pow(10, m.unit),
+            timestamp: new Date(group.date * 1000).toISOString(),
+          };
+        }
+      }
+    }
+
+    // Calculate BMI if we have weight (assume height from profile or skip)
+    if (measures.weight) {
+      // Withings weight is in kg
+      measures.weightLbs = { value: (measures.weight.value * 2.20462).toFixed(1), timestamp: measures.weight.timestamp };
+    }
+
+    healthVitals.withingsData = { measures, fetchedAt: new Date().toISOString() };
+    broadcastHealthUpdate({ type: 'withings', ...healthVitals.withingsData });
+    console.log('[Withings] Data fetched:', Object.keys(measures).join(', '));
+    res.json(healthVitals.withingsData);
+  } catch (err) {
+    console.error('[Withings] Data fetch error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── HTTP server + WebSocket upgrade routing ───────────────────────────────────
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
@@ -813,6 +1255,8 @@ server.listen(PORT, async () => {
   console.log(`  Model:  claude-sonnet-4-6`);
   console.log(`  Voice:  ${process.env.ELEVENLABS_VOICE_ID}`);
   console.log(`  Twilio: ${twilioClient ? 'configured' : 'not configured (Connect section disabled)'}`);
+  console.log(`  Withings: ${withingsConfigured ? 'configured' : 'not configured (body composition disabled)'}`);
+  console.log(`  Health test: http://localhost:${PORT}/api/health/test`);
   if (process.env.NGROK_URL) console.log(`  ngrok:  ${process.env.NGROK_URL}`);
   await verifyDeepgramKey();
 });

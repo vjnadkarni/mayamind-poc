@@ -7,7 +7,7 @@ MayaMind is an AI-powered companion and wellness platform for seniors, delivered
 
 The **proof-of-concept** (tagged `v0.1.0`) validated the core conversation loop: User speaks → speech recognized → Claude generates response → ElevenLabs synthesizes speech → TalkingHead 3D avatar lip-syncs the audio. End-to-end latency: sub-3 seconds. Supports barge-in and mood-aware responses.
 
-The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, and Connect (WhatsApp messaging) into a single iPad-optimized interface. The conversation pipeline includes Claude's native web search tool for real-time information (weather, news, sports scores).
+The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, health monitoring, and Connect (WhatsApp messaging) into a single iPad-optimized interface. The conversation pipeline includes Claude's native web search tool for real-time information (weather, news, sports scores).
 
 ## Product Documents
 
@@ -36,6 +36,8 @@ Original `.docx` versions are also in `docs/` for reference but are no longer ma
 | Device Management | Apple Business Manager + MDM | Cloud | — |
 
 | WhatsApp Messaging | Twilio WhatsApp API | Cloud | Per-message |
+| Health Monitoring | Apple HealthKit (via iPhone companion) | iPhone + Server | Free |
+| Body Composition | Withings API (OAuth2) | Cloud | Free |
 
 Key principle: **Three cloud APIs incur per-use charges** (Claude/web search, ElevenLabs, and Twilio). Everything else is on-device or free.
 
@@ -85,6 +87,7 @@ mayamind-poc/
 │   │   ├── personalization-store.js # SQLite database (sql.js + localStorage)
 │   │   ├── connect-store.js         # SQLite store for contacts & messages
 │   │   ├── emoji-utils.js           # Emoji-to-speech conversion & mood extraction
+│   │   ├── preferences-sync.js       # Supabase cloud sync for user preferences
 │   │   ├── consent-manager.js       # Three-tier consent model
 │   │   ├── extraction-pipeline.js   # Claude-based personality extraction
 │   │   ├── content-safety.js        # Content safety filtering
@@ -94,12 +97,20 @@ mayamind-poc/
 │   └── sections/           # Feature sections
 │       ├── maya/            # TalkingHead conversation
 │       │   └── maya-section.js      # Full conversation pipeline + personalization
-│       ├── exercise/        # Exercise coaching (wraps exercise-poc)
+│       ├── exercise/        # Exercise coaching (native camera + MediaPipe + avatar)
 │       │   └── exercise-section.js
-│       ├── health/          # Placeholder (Apple HealthKit)
+│       ├── health/          # Health monitoring (Apple Watch + Withings)
 │       │   └── health-section.js
 │       └── connect/         # WhatsApp messaging via Twilio
 │           └── connect-section.js
+├── companion-ios/           # iPhone companion app (HealthKit → server)
+│   ├── README.md            # Xcode project setup instructions
+│   └── MayaMindCompanion/
+│       ├── MayaMindCompanionApp.swift
+│       ├── ContentView.swift
+│       ├── HealthKitManager.swift
+│       ├── ServerConnection.swift
+│       └── MayaMindCompanion.entitlements
 ├── public/                 # TalkingHead conversation POC (v0.1.0)
 │   ├── index.html          # Single page UI
 │   ├── app.js              # Conversation pipeline orchestration
@@ -107,11 +118,13 @@ mayamind-poc/
 │   ├── avatars/            # GLB avatar file(s)
 │   ├── backgrounds/        # JPG background images for settings panel
 │   └── animations/         # FBX Mixamo animations
-└── exercise-poc/           # Exercise detection prototype
-    ├── index.html          # UI with video feed, voice panel
+└── exercise-poc/           # Exercise detection prototype (standalone + reused by dashboard)
+    ├── index.html          # Standalone UI with video feed, voice panel
     ├── pose.js             # Pose estimation + detector integration
     ├── voice.js            # Voice workflow state machine
-    ├── exercises/          # Per-exercise detectors
+    ├── llm.js              # LLM service (Claude API for exercise coaching)
+    ├── joints.js           # Skeleton connections, angle calculation, smoothing
+    ├── exercises/          # Per-exercise detectors (imported by dashboard too)
     │   ├── squat.js
     │   ├── lunge.js
     │   ├── bicepsCurl.js
@@ -148,6 +161,8 @@ Keys used by the POC:
 - `TWILIO_AUTH_TOKEN` — Twilio auth token
 - `TWILIO_WHATSAPP_NUMBER` — e.g., `whatsapp:+14155238886` (sandbox)
 - `NGROK_URL` — e.g., `https://your-domain.ngrok-free.dev` (for Twilio media webhooks)
+- `WITHINGS_CLIENT_ID` — Withings developer app client ID (optional)
+- `WITHINGS_CLIENT_SECRET` — Withings developer app client secret (optional)
 
 ### Running the POC
 
@@ -258,7 +273,7 @@ The dashboard combines all features into a single iPad-optimized interface. Acce
 
 ### Navigation
 
-- 2x2 grid: Maya Conversation (active), Exercise Guidance (active), Health Monitoring (placeholder), Connect with Loved Ones (active)
+- 2x2 grid: Maya Conversation (active), Exercise Guidance (active), Health Monitoring (active), Connect with Loved Ones (active)
 - Tap block → full-screen section view
 - Dashboard button always visible for single-tap return
 - Mute button (green mic / red mic-slash) next to dashboard button for voice mute/unmute
@@ -290,7 +305,10 @@ node server/server.js
 | `dashboard/app.js` | Navigation controller, section lifecycle, WhatsApp notification badges, global mute state |
 | `dashboard/sections/maya/maya-section.js` | Full Maya conversation pipeline with personalization |
 | `dashboard/sections/connect/connect-section.js` | WhatsApp messaging: TalkingHead avatar, voice, Claude conversation, ACTION tags |
+| `dashboard/sections/exercise/exercise-section.js` | Native exercise coaching: camera, MediaPipe, TalkingHead avatar, voice workflow |
+| `dashboard/sections/health/health-section.js` | Health monitoring dashboard: real-time vitals, moving averages, SSE client |
 | `dashboard/core/personalization-store.js` | SQLite database via sql.js with localStorage persistence |
+| `dashboard/core/preferences-sync.js` | Supabase cloud sync for user preferences (opt-in) |
 | `dashboard/core/connect-store.js` | SQLite store for contacts and message history |
 | `dashboard/core/emoji-utils.js` | Emoji-to-speech conversion and mood extraction for voice interface |
 | `dashboard/core/voice-commands.js` | Voice command detection incl. mute/unmute |
@@ -357,6 +375,90 @@ Two extraction modes:
 **Input Serialization:**
 - `processInput()` wrapper prevents overlapping `handleUserInput` calls
 - Uses `processingInput` flag and `pendingInput` queue
+
+## Exercise Guidance Section (Dashboard)
+
+The Exercise Guidance section is a **native implementation** (not an iframe) that combines camera-based pose detection with a TalkingHead avatar coach. It imports exercise detectors and LLM modules directly from `/exercise-poc/` via absolute URL imports.
+
+### Layout
+
+```
+┌───────────────────────────────────────┬──────────────────┐
+│                                       │  Exercise Name   │
+│                                       │  REP COUNT       │ 25%
+│    Camera Video Feed                  │  Quality: --     │
+│    + Skeleton Overlay                 ├──────────────────┤
+│    (75% width)                        │  Maya Avatar     │ 25%
+│                                       │  (TalkingHead)   │
+│                                       ├──────────────────┤
+│                                       │  Chat Window     │ 50%
+│                                       │  (transcript)    │
+└───────────────────────────────────────┴──────────────────┘
+```
+
+### Cross-Path Module Imports
+
+The dashboard imports detectors and utilities from `exercise-poc/` using absolute URLs (works because Express serves both directories):
+
+| Module | Imports |
+|--------|---------|
+| `/exercise-poc/exercises/squat.js` | `SquatDetector` |
+| `/exercise-poc/exercises/lunge.js` | `LungeDetector` |
+| `/exercise-poc/exercises/bicepsCurl.js` | `BicepsCurlDetector` |
+| `/exercise-poc/exercises/pushup.js` | `PushupDetector` |
+| `/exercise-poc/joints.js` | `SKELETON_CONNECTIONS`, `calculateJointAngles`, `AngleSmoother` |
+| `/exercise-poc/llm.js` | `generateResponse`, `parseResponse`, `EXERCISE_DISPLAY_NAMES` |
+
+### Workflow State Machine
+
+11-state voice-driven workflow using `generateResponse()` from `llm.js`:
+
+```
+IDLE → GREETING → WAITING_START → MENU → WAITING_SELECTION → EXERCISE_ACTIVE
+                                                                    │
+                                                              (idle timeout)
+                                                                    ↓
+                                                            COMPLETION_CHECK → WAITING_DONE
+                                                                              │       │
+                                                                        (yes)↓   (no)→ back
+                                                                            REPORT → WAITING_MORE
+                                                                                      │       │
+                                                                                (yes)↓   (no)→ ENDED
+                                                                                    MENU
+```
+
+### Dual TTS System
+
+- **TalkingHead + ElevenLabs:** For conversational speech (greetings, instructions, reports) — lip-synced avatar
+- **Web Speech API (`speechSynthesis`):** For rep count announcements — low-latency, no network round-trip
+
+### Key Implementation Details
+
+- **MediaPipe Pose Landmarker:** GPU delegate, heavy model, 0.5 confidence threshold
+- **Skeleton overlay:** Canvas with `object-fit: contain` matching video, `scaleX(-1)` for mirror, clipped to canvas bounds
+- **Avatar race condition:** `applyMood()` and `speakText()` guard with `this.avatarLoaded` flag — `showAvatar()` is async and may not complete before greeting
+- **Audio fallback:** When avatar not yet loaded, TTS audio plays directly via `AudioManager.playBuffer()` instead of being silently skipped
+- **Idle timer:** 15s before first rep, 10s after first rep → triggers completion check
+- **Echo detection:** `isLikelyEcho()` compares speech transcript against `currentMayaSpeech` (60% word overlap threshold)
+- **Chat transcript:** Color-coded messages (green for user, white for Maya), auto-scroll, 20-message limit
+
+## Preferences Cloud Sync (Supabase)
+
+Optional cloud sync of user preferences to Supabase. Requires Supabase project URL and anon key in Settings.
+
+### Architecture
+
+- `dashboard/core/preferences-sync.js` — sync engine using Supabase JS client (loaded from CDN)
+- Preferences stored in `user_preferences` table with composite PK `(device_id, category)`
+- Categories: `personal` (name, DOB, sex, address), `app` (theme, voice)
+- Sync triggered on settings save; merge strategy: cloud wins for conflicts
+- Device ID generated per browser (stored in localStorage)
+
+### Settings Address Fields
+
+Settings overlay includes address fields for local service recommendations:
+- Street Address (full-width text input)
+- City, State, Zip Code (on one row — State is a dropdown with all 50 US states + DC)
 
 ## Web Search Integration
 
@@ -476,6 +578,92 @@ Follows the same sql.js + localStorage pattern as `personalization-store.js`. St
 - SSE via EventSource for real-time incoming message notifications
 - Section lifecycle: mount/pause/resume/unmount with state preservation
 - Twilio client is optional — server starts without it if env vars are missing
+
+## Health Monitoring Section
+
+Real-time health vitals from Apple Watch (via iPhone companion app) and body composition from Withings Smart Scale. Display-only monitoring — no safety alerts.
+
+### Architecture
+
+```
+Apple Watch → iPhone (HealthKit) → Companion App → POST /api/health/vitals → Server (in-memory)
+                                                                                    ↓
+iPad Dashboard ← SSE /api/health/events ← Server broadcasts on each POST ──────────┘
+
+Withings Scale → WiFi → Withings Cloud → Server OAuth2 + REST → iPad Health Section
+```
+
+**Key constraint:** Apple Watch can only pair with iPhone (not iPad). HealthKit is iPhone-only. The lightweight iPhone companion app reads HealthKit and pushes data to the MayaMind server every 60 seconds.
+
+### Health Metrics
+
+| Metric | Source | Display |
+|--------|--------|---------|
+| Heart Rate | Apple Watch | BPM + 10-min avg |
+| Heart Rate Variability (HRV) | Apple Watch | ms + 10-min avg |
+| Blood Oxygen (SpO2) | Apple Watch | % + 10-min avg |
+| Steps | Apple Watch | Count since midnight |
+| Move Minutes | Apple Watch | Min since midnight |
+| Exercise Minutes | Apple Watch | Min since midnight |
+| Sleep | Apple Watch | Duration + stages (deep/core/REM/awake) |
+| Weight | Withings Scale | lbs/kg |
+| Body Fat | Withings Scale | % |
+| Muscle Mass | Withings Scale | lbs/kg |
+
+**Note:** SpO2 may be unavailable on US Apple Watch Series 9+ (Masimo patent dispute).
+
+### Server Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/health/events` | GET | SSE stream for real-time health updates |
+| `/api/health/vitals` | POST | Receive vitals from iPhone companion |
+| `/api/health/vitals/latest` | GET | iPad fetches current state + history |
+| `/api/health/test` | GET | Generate mock vitals for UI testing |
+| `/api/health/withings/status` | GET | Check if Withings is configured/connected |
+| `/api/health/withings/auth` | GET | Start Withings OAuth2 flow |
+| `/api/health/withings/callback` | GET | Handle Withings OAuth2 callback |
+| `/api/health/withings/data` | GET | Fetch latest body composition from Withings |
+
+### Server-Side Data Store
+
+- **In-memory** ring buffer (60 entries, ~1 per minute)
+- No persistent storage — vitals are transient, server restart clears data
+- Withings OAuth tokens stored in memory (re-auth required after restart)
+
+### iPad Health Section UI
+
+- Grid layout: 3 columns of vital cards
+- Row 1: Heart Rate (red), HRV (purple), SpO2 (blue) — with 10-min moving averages
+- Row 2: Steps (green), Move Minutes (amber), Exercise Minutes (pink)
+- Row 3: Sleep (2-col, purple) with stage breakdown, Body Composition (1-col, green)
+- Connection status bar: Watch (green/amber/gray), Withings (green/gray)
+- "Waiting for data" overlay when no vitals received yet
+- SSE connection for real-time updates, initial fetch on mount
+
+### iPhone Companion App
+
+Located in `companion-ios/MayaMindCompanion/`. See `companion-ios/README.md` for Xcode project setup.
+
+| File | Purpose |
+|------|---------|
+| `MayaMindCompanionApp.swift` | SwiftUI app entry point |
+| `ContentView.swift` | Minimal status screen (connection state, server URL) |
+| `HealthKitManager.swift` | HealthKit authorization + observer queries + data fetching |
+| `ServerConnection.swift` | HTTP POST to MayaMind server |
+
+The app uses `HKObserverQuery` for real-time HealthKit updates plus a 60-second timer fallback. Requires iPhone with paired Apple Watch (Series 9+). HealthKit does not work in the iOS Simulator.
+
+### Withings Integration
+
+- OAuth2 flow managed server-side (optional — server starts without Withings if env vars missing)
+- User clicks "Connect Withings Scale" button in Health section → opens OAuth popup
+- After authorization, server fetches weight/body composition from Withings Measure API
+- Supports automatic token refresh
+
+### Testing Without Hardware
+
+Hit `http://localhost:3000/api/health/test` in a browser to generate mock vitals data. This pushes a randomized vitals payload via SSE to any connected Health section, allowing UI development without the iPhone companion or Apple Watch.
 
 ## GitHub
 

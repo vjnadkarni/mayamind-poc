@@ -83,6 +83,8 @@ export class MayaSection {
     this.isMuted = options.isMuted || (() => false);
     this.setMuted = options.setMuted || (() => {});
     this.onStateChange = options.onStateChange || null;
+    this.onAppearanceChange = options.onAppearanceChange || null;
+    this.cloudAppearance = options.cloudAppearance || null;
 
     // TalkingHead instance
     this.head = null;
@@ -150,6 +152,11 @@ export class MayaSection {
       this.tier2PromptShown = savedState.tier2PromptShown || false;
       this.restoreTranscript();
       this.syncSettingsUI();
+    } else if (this.cloudAppearance) {
+      // First mount — apply cloud-persisted appearance
+      this.settings = { ...DEFAULT_SETTINGS, ...this.cloudAppearance };
+      this.currentMood = this.settings.mood || 'happy';
+      this.syncSettingsUI();
     }
 
     // Ensure AudioContext is ready
@@ -214,16 +221,22 @@ export class MayaSection {
   createUI() {
     this.container.innerHTML = `
       <div class="maya-container" id="maya-bg-container">
-        <!-- Settings Button -->
-        <button class="maya-settings-btn" id="maya-settings-btn" title="Settings">&#9881;</button>
+        <!-- Appearance Button -->
+        <button class="maya-settings-btn" id="maya-settings-btn" title="Appearance">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="20" rx="3"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <path d="M21 15l-5-5L5 21"/>
+          </svg>
+        </button>
 
-        <!-- Settings Overlay -->
+        <!-- Appearance Overlay -->
         <div class="maya-settings-overlay" id="maya-settings-overlay"></div>
 
-        <!-- Settings Panel -->
+        <!-- Appearance Panel -->
         <div class="maya-settings-panel" id="maya-settings-panel">
           <div class="settings-header">
-            <h3>Settings</h3>
+            <h3>Appearance</h3>
             <button id="maya-settings-close">&#10005;</button>
           </div>
 
@@ -304,6 +317,10 @@ export class MayaSection {
           height: 100% !important;
         }
         .maya-hud {
+          flex: 0 0 20%;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
           background: rgba(0, 0, 0, 0.8);
           padding: 16px;
           border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -333,7 +350,7 @@ export class MayaSection {
           font-size: 14px;
         }
         .maya-transcript {
-          max-height: 150px;
+          flex: 1;
           overflow-y: auto;
           font-size: 14px;
           line-height: 1.5;
@@ -349,7 +366,7 @@ export class MayaSection {
           margin-right: 8px;
         }
 
-        /* Settings Button */
+        /* Appearance Button */
         .maya-settings-btn {
           position: absolute;
           top: 12px;
@@ -370,7 +387,7 @@ export class MayaSection {
         }
         .maya-settings-btn:hover { border-color: #555; color: #ddd; }
 
-        /* Settings Overlay */
+        /* Appearance Overlay */
         .maya-settings-overlay {
           position: absolute;
           inset: 0;
@@ -383,7 +400,7 @@ export class MayaSection {
         }
         .maya-settings-overlay.open { opacity: 1; pointer-events: auto; }
 
-        /* Settings Panel */
+        /* Appearance Panel */
         .maya-settings-panel {
           position: absolute;
           top: 0;
@@ -507,6 +524,8 @@ export class MayaSection {
           // Apply setting
           const value = btn.dataset.value;
           if (applyFns[setting]) applyFns[setting](value);
+          // Persist appearance to Supabase
+          if (this.onAppearanceChange) this.onAppearanceChange({ ...this.settings });
         });
       });
     });

@@ -31,6 +31,39 @@ const MOOD_VOICE_SETTINGS = {
   sleep:   { stability: 0.80, similarity_boost: 0.70 },
 };
 
+// Background options (same as Maya section)
+const BACKGROUNDS = {
+  default: { type: 'color', value: '#0a0a10' },
+  office:  { type: 'image', value: '/backgrounds/office.jpg' },
+  living:  { type: 'image', value: '/backgrounds/living.jpg' },
+  nature:  { type: 'image', value: '/backgrounds/nature.jpg' },
+  beach:   { type: 'image', value: '/backgrounds/beach.jpg' },
+};
+
+// Background position per camera view
+const BG_VIEW = {
+  full:  { size: 'cover', pos: 'center bottom' },
+  upper: { size: '130%', pos: 'center 25%' },
+  mid:   { size: '150%', pos: 'center 15%' },
+  head:  { size: '200%', pos: 'center top' },
+};
+
+// Lighting presets
+const LIGHTING_PRESETS = {
+  studio:   { ambientLightColor: 0xffffff, ambientLightIntensity: 0.7, directionalLightColor: 0xffffff, directionalLightIntensity: 1.2, directionalLightPhi: 0.8, directionalLightTheta: 0 },
+  warm:     { ambientLightColor: 0xffd6aa, ambientLightIntensity: 0.6, directionalLightColor: 0xffcc88, directionalLightIntensity: 1.0, directionalLightPhi: 0.7, directionalLightTheta: 0.3 },
+  cool:     { ambientLightColor: 0xaaccff, ambientLightIntensity: 0.6, directionalLightColor: 0xaaddff, directionalLightIntensity: 1.0, directionalLightPhi: 0.9, directionalLightTheta: -0.2 },
+  dramatic: { ambientLightColor: 0x444466, ambientLightIntensity: 0.3, directionalLightColor: 0xffffee, directionalLightIntensity: 1.5, directionalLightPhi: 0.5, directionalLightTheta: 0.5 },
+  soft:     { ambientLightColor: 0xffeedd, ambientLightIntensity: 0.8, directionalLightColor: 0xffffff, directionalLightIntensity: 0.6, directionalLightPhi: 1.0, directionalLightTheta: 0 },
+};
+
+const DEFAULT_APPEARANCE = {
+  cameraView: 'head',
+  background: 'default',
+  mood: 'happy',
+  lighting: 'studio',
+};
+
 const State = {
   LOADING: 'loading',
   LISTENING: 'listening',
@@ -48,6 +81,8 @@ export class ConnectSection {
     this.isMuted = options.isMuted || (() => false);
     this.setMuted = options.setMuted || (() => {});
     this.onStateChange = options.onStateChange || null;
+    this.onAppearanceChange = options.onAppearanceChange || null;
+    this.cloudAppearance = options.cloudAppearance || null;
 
     // TalkingHead
     this.TalkingHead = null;
@@ -91,6 +126,9 @@ export class ConnectSection {
 
     // Selected contact
     this.selectedContactId = null;
+
+    // Appearance settings
+    this.appearance = { ...DEFAULT_APPEARANCE };
   }
 
   // ── Mount / Lifecycle ───────────────────────────────────────────────────────
@@ -107,6 +145,13 @@ export class ConnectSection {
     if (savedState) {
       this.conversationHistory = savedState.conversationHistory || [];
       this.currentMood = savedState.mood || 'happy';
+      if (savedState.appearance) {
+        this.appearance = { ...DEFAULT_APPEARANCE, ...savedState.appearance };
+      }
+    } else if (this.cloudAppearance) {
+      // First mount — apply cloud-persisted appearance
+      this.appearance = { ...DEFAULT_APPEARANCE, ...this.cloudAppearance };
+      this.currentMood = this.appearance.mood || 'happy';
     }
 
     // Build UI
@@ -180,6 +225,7 @@ export class ConnectSection {
   getState() {
     return {
       conversationHistory: this.conversationHistory,
+      appearance: this.appearance,
       mood: this.currentMood,
     };
   }
@@ -188,32 +234,93 @@ export class ConnectSection {
 
   createUI() {
     this.container.innerHTML = `
-      <div class="connect-layout">
-        <div class="connect-sidebar">
-          <div class="sidebar-header">Contacts</div>
-          <div class="contact-list" id="connect-contact-list"></div>
-          <button class="add-contact-btn" id="connect-add-btn">+ Add Contact</button>
+      <div class="connect-wrapper">
+        <div class="connect-layout">
+          <div class="connect-sidebar">
+            <div class="sidebar-header">Contacts</div>
+            <div class="contact-list" id="connect-contact-list"></div>
+            <button class="add-contact-btn" id="connect-add-btn">+ Add Contact</button>
+          </div>
+          <div class="connect-main" id="connect-bg-container">
+            <!-- Appearance Button -->
+            <button class="connect-appearance-btn" id="connect-appearance-btn" title="Appearance">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="2" width="20" height="20" rx="3"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
+              </svg>
+            </button>
+            <!-- Appearance Overlay -->
+            <div class="connect-appearance-overlay" id="connect-appearance-overlay"></div>
+            <!-- Appearance Panel -->
+            <div class="connect-appearance-panel" id="connect-appearance-panel">
+              <div class="appearance-header">
+                <h3>Appearance</h3>
+                <button id="connect-appearance-close">&#10005;</button>
+              </div>
+              <div class="appearance-section">
+                <label>Camera View</label>
+                <div class="appearance-btn-group" data-setting="cameraView">
+                  <button data-value="head" class="active">Head</button>
+                  <button data-value="upper">Upper Body</button>
+                  <button data-value="mid">Torso Up</button>
+                  <button data-value="full">Full Body</button>
+                </div>
+              </div>
+              <div class="appearance-section">
+                <label>Background</label>
+                <div class="appearance-btn-group" data-setting="background">
+                  <button data-value="default" class="active">Default</button>
+                  <button data-value="office">Office</button>
+                  <button data-value="living">Living Room</button>
+                  <button data-value="nature">Nature</button>
+                  <button data-value="beach">Beach</button>
+                </div>
+              </div>
+              <div class="appearance-section">
+                <label>Mood</label>
+                <div class="appearance-btn-group" data-setting="mood">
+                  <button data-value="neutral">Neutral</button>
+                  <button data-value="happy" class="active">Happy</button>
+                  <button data-value="angry">Angry</button>
+                  <button data-value="sad">Sad</button>
+                  <button data-value="love">Love</button>
+                </div>
+              </div>
+              <div class="appearance-section">
+                <label>Lighting</label>
+                <div class="appearance-btn-group" data-setting="lighting">
+                  <button data-value="studio" class="active">Studio</button>
+                  <button data-value="warm">Warm</button>
+                  <button data-value="cool">Cool</button>
+                  <button data-value="dramatic">Dramatic</button>
+                  <button data-value="soft">Soft</button>
+                </div>
+              </div>
+            </div>
+            <div class="connect-avatar-area" id="connect-avatar-container"></div>
+          </div>
         </div>
-        <div class="connect-main">
-          <div class="connect-avatar-area" id="connect-avatar-container"></div>
+        <div class="connect-bottom-area">
           <div class="connect-messages" id="connect-messages">
             <div class="messages-placeholder">Select a contact to view messages</div>
           </div>
-        </div>
-      </div>
-      <div class="connect-bottom-bar">
-        <div class="connect-status" id="connect-status">Loading...</div>
-        <div class="connect-transcript" id="connect-transcript"></div>
-        <div class="connect-recording hidden" id="connect-recording">
-          <div class="recording-indicator"></div>
-          <span>Recording...</span>
-          <button class="recording-stop-btn" id="connect-stop-record">Stop</button>
+          <div class="connect-bottom-bar">
+            <div class="connect-status" id="connect-status">Loading...</div>
+            <div class="connect-transcript" id="connect-transcript"></div>
+            <div class="connect-recording hidden" id="connect-recording">
+              <div class="recording-indicator"></div>
+              <span>Recording...</span>
+              <button class="recording-stop-btn" id="connect-stop-record">Stop</button>
+            </div>
+          </div>
         </div>
       </div>
     `;
 
     // Cache elements
     this.avatarContainer = this.container.querySelector('#connect-avatar-container');
+    this.bgContainer = this.container.querySelector('#connect-bg-container');
     this.els.contactList = this.container.querySelector('#connect-contact-list');
     this.els.addBtn = this.container.querySelector('#connect-add-btn');
     this.els.messages = this.container.querySelector('#connect-messages');
@@ -221,6 +328,8 @@ export class ConnectSection {
     this.els.transcript = this.container.querySelector('#connect-transcript');
     this.els.recording = this.container.querySelector('#connect-recording');
     this.els.stopRecord = this.container.querySelector('#connect-stop-record');
+    this.els.appearancePanel = this.container.querySelector('#connect-appearance-panel');
+    this.els.appearanceOverlay = this.container.querySelector('#connect-appearance-overlay');
 
     // Event listeners
     this.els.addBtn.addEventListener('click', () => {
@@ -230,6 +339,76 @@ export class ConnectSection {
     this.els.stopRecord.addEventListener('click', () => {
       this.stopVoiceRecording();
     });
+
+    // Appearance panel events
+    this.setupAppearanceEvents();
+
+    // Sync appearance button states to current values
+    this.syncAppearanceUI();
+  }
+
+  // ── Appearance Panel ──────────────────────────────────────────────────────
+
+  setupAppearanceEvents() {
+    const openBtn = this.container.querySelector('#connect-appearance-btn');
+    const closeBtn = this.container.querySelector('#connect-appearance-close');
+    const overlay = this.els.appearanceOverlay;
+    const panel = this.els.appearancePanel;
+
+    const openPanel = () => { overlay.classList.add('open'); panel.classList.add('open'); };
+    const closePanel = () => { overlay.classList.remove('open'); panel.classList.remove('open'); };
+
+    openBtn.addEventListener('click', openPanel);
+    overlay.addEventListener('click', closePanel);
+    closeBtn.addEventListener('click', closePanel);
+
+    const applyFns = {
+      cameraView: (v) => { this.appearance.cameraView = v; this.head?.setView(v); this.updateBackgroundCSS(); },
+      background: (v) => { this.appearance.background = v; this.updateBackgroundCSS(); },
+      mood: (v) => { this.appearance.mood = v; this.currentMood = v; this.head?.setMood(v); },
+      lighting: (v) => { this.appearance.lighting = v; if (this.head && LIGHTING_PRESETS[v]) this.head.setLighting(LIGHTING_PRESETS[v]); },
+    };
+
+    this.container.querySelectorAll('.appearance-btn-group').forEach(group => {
+      const setting = group.dataset.setting;
+      group.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          if (applyFns[setting]) applyFns[setting](btn.dataset.value);
+          // Persist appearance to Supabase
+          if (this.onAppearanceChange) this.onAppearanceChange({ ...this.appearance });
+        });
+      });
+    });
+  }
+
+  syncAppearanceUI() {
+    const panel = this.els.appearancePanel;
+    if (!panel) return;
+    const current = this.appearance;
+    panel.querySelectorAll('.appearance-btn-group').forEach(group => {
+      const setting = group.dataset.setting;
+      const activeValue = current[setting];
+      group.querySelectorAll('button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.value === activeValue);
+      });
+    });
+  }
+
+  updateBackgroundCSS() {
+    if (!this.bgContainer) return;
+    const bg = BACKGROUNDS[this.appearance.background] || BACKGROUNDS.default;
+    if (bg.type === 'image') {
+      const view = BG_VIEW[this.appearance.cameraView] || BG_VIEW.full;
+      this.bgContainer.style.backgroundColor = '#0a0a10';
+      this.bgContainer.style.backgroundImage = `url('${bg.value}')`;
+      this.bgContainer.style.backgroundSize = view.size;
+      this.bgContainer.style.backgroundPosition = view.pos;
+    } else {
+      this.bgContainer.style.backgroundImage = 'none';
+      this.bgContainer.style.backgroundColor = bg.value;
+    }
   }
 
   updateStatusUI(text) {
@@ -335,7 +514,7 @@ export class ConnectSection {
     this.head = new this.TalkingHead(this.avatarContainer, {
       ttsEndpoint: null,
       audioCtx: audioCtx,
-      cameraView: 'head',
+      cameraView: this.appearance.cameraView,
       cameraRotateEnable: true,
       lipsyncLang: 'en',
       lipsyncModules: ['en'],
@@ -344,11 +523,12 @@ export class ConnectSection {
     await this.head.showAvatar({
       url: AVATAR_URL,
       body: 'F',
-      avatarMood: 'happy',
+      avatarMood: this.appearance.mood,
       lipsyncLang: 'en',
     });
 
-    this.head.setMood('happy');
+    this.head.setMood(this.appearance.mood);
+    this.updateBackgroundCSS();
     console.log('[Connect] Avatar loaded');
   }
 
