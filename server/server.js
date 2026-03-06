@@ -56,6 +56,9 @@ app.use('/exercise-poc', express.static(path.join(__dirname, '..', 'exercise-poc
 // Serve unified dashboard
 app.use('/dashboard', express.static(path.join(__dirname, '..', 'dashboard')));
 
+// Serve landing page images
+app.use('/images', express.static(path.join(__dirname, '..', 'images')));
+
 // ── GET /api/config — Public config for browser (Supabase URL + anon key) ────
 app.get('/api/config', (req, res) => {
   res.json({

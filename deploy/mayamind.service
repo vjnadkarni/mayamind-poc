@@ -1,0 +1,33 @@
+# Systemd service file for MayaMind
+# Place this file at: /etc/systemd/system/mayamind.service
+
+[Unit]
+Description=MayaMind Companion Dashboard
+Documentation=https://github.com/vjnadkarni/mayamind-poc
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/mayamind
+ExecStart=/usr/bin/node server/server.js
+Restart=on-failure
+RestartSec=10
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=3001
+EnvironmentFile=/var/www/mayamind/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mayamind
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1495,6 +1495,9 @@ export class HealthSection {
           this.vitalsHistory = data.history;
         }
         this.handleVitalsUpdate({ type: 'vitals', ...data.latest });
+      } else {
+        // No real data — load mock data for demo purposes
+        this.loadMockData();
       }
 
       if (data.withings) {
@@ -1502,7 +1505,102 @@ export class HealthSection {
       }
     } catch (err) {
       console.error('[HealthSection] Failed to fetch latest vitals:', err);
+      // On error, also load mock data
+      this.loadMockData();
     }
+  }
+
+  // ── Mock Data (for demo when no iPhone companion connected) ─────────────────
+
+  loadMockData() {
+    console.log('[HealthSection] Loading mock data for demo');
+
+    const now = new Date().toISOString();
+
+    // Mock vitals data (Vijay's typical values)
+    const mockVitals = {
+      type: 'vitals',
+      timestamp: now,
+      deviceName: 'Demo Mode',
+      vitals: {
+        heartRate: {
+          value: 52,
+          timestamp: now,
+          range24h: { min: 48, max: 110 },
+        },
+        hrv: {
+          value: 41,
+          timestamp: now,
+          range24h: { min: 39, max: 55 },
+        },
+        spo2: {
+          value: 98,
+          timestamp: now,
+          range24h: { min: 95, max: 99 },
+        },
+        steps: {
+          value: 10539,
+          timestamp: now,
+        },
+        moveMinutes: {
+          value: 185,
+          timestamp: now,
+        },
+        exerciseMinutes: {
+          value: 66,
+          timestamp: now,
+        },
+      },
+      sleep: {
+        totalHours: 7.5,
+        startTime: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+        endTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        stages: {
+          deep: 1.2,
+          core: 4.0,
+          rem: 1.8,
+          awake: 0.5,
+        },
+      },
+    };
+
+    // Mock Withings body composition data
+    const mockWithings = {
+      type: 'withings',
+      measures: {
+        weight: {
+          value: 58.33, // 128.6 lbs in kg
+          timestamp: now,
+        },
+        fatPercent: {
+          value: 8.4,
+          timestamp: now,
+        },
+        boneMass: {
+          value: 3.58, // 7.9 lbs in kg
+          timestamp: now,
+        },
+        muscleMass: {
+          value: 50.8, // estimated
+          timestamp: now,
+        },
+        visceralFat: {
+          value: 1,
+          timestamp: now,
+        },
+      },
+    };
+
+    // Apply mock data
+    this.handleVitalsUpdate(mockVitals);
+    this.handleWithingsUpdate(mockWithings);
+
+    // Update connection status to show demo mode
+    this.els.dotWatch.className = 'connection-dot connected';
+    this.els.statusWatch.textContent = 'Apple Watch: Demo Mode';
+    this.els.dotWithings.className = 'connection-dot connected';
+    this.els.statusWithings.textContent = 'Withings: Demo Mode';
+    this.els.withingsBtn.classList.add('hidden');
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────

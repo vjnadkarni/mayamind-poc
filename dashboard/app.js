@@ -10,6 +10,7 @@ import { AudioManager } from './core/audio-manager.js';
 import { TTSService } from './core/tts-service.js';
 import { connectStore } from './core/connect-store.js';
 import { preferencesSync } from './core/preferences-sync.js';
+import { LandingPage } from './landing.js';
 
 // Section modules (lazy loaded)
 let MayaSection = null;
@@ -28,6 +29,7 @@ const state = {
   unreadWhatsAppCount: 0,
   globalSSE: null,
   isMuted: false,
+  landingPage: null,
 };
 
 // ── DOM Elements ─────────────────────────────────────────────────────────────
@@ -65,6 +67,17 @@ async function init() {
     health: document.getElementById('health-section'),
     connect: document.getElementById('connect-section'),
   };
+
+  // Initialize landing page
+  state.landingPage = new LandingPage({
+    onEnter: () => {
+      console.log('[Dashboard] Entered from landing page');
+    },
+    onSettings: () => {
+      openSettings();
+    },
+  });
+  state.landingPage.init();
 
   // Initialize session manager
   state.sessionManager = new SessionManager({

@@ -9,6 +9,8 @@ The **proof-of-concept** (tagged `v0.1.0`) validated the core conversation loop:
 
 The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, health monitoring, and Connect (WhatsApp messaging) into a single iPad-optimized interface. The conversation pipeline includes Claude's native web search tool for real-time information (weather, news, sports scores).
 
+**Production deployment:** https://companion.mayamind.ai/dashboard/
+
 ## Product Documents
 
 All product documents live in `docs/` as Markdown:
@@ -64,11 +66,19 @@ mayamind-poc/
 ├── CLAUDE.md
 ├── MayaMind_TalkingHead_POC_Prompt.md   # Original POC prompt
 ├── setup.sh                # Downloads TalkingHead assets from GitHub
+├── deploy/                 # Production deployment configs
+│   ├── DEPLOYMENT.md       # Step-by-step VPS deployment guide
+│   ├── nginx-companion.conf # Nginx reverse proxy config
+│   ├── mayamind.service    # Systemd service file
+│   └── env.production.template # .env template for production
+├── images/                 # Landing page slideshow images
+│   └── *.jpg               # Senior activity photos (Unsplash/Pexels)
 ├── docs/
 │   ├── MayaMind_Executive_Summary.md    # v1.03
 │   ├── MayaMind_MRD_v1.04.md
 │   ├── MayaMind_PRD_v1.06.md
 │   ├── Personalization_Architecture_v1.0.md   # Personalization system design
+│   ├── CONFIGURE_TWILIO_WHATSAPP_NUMBER.md   # WhatsApp Business setup guide
 │   └── *.docx                           # Original versions (not maintained)
 ├── server/
 │   ├── server.js           # Express server: static files + API proxies
@@ -267,9 +277,37 @@ node server/server.js
 
 Development machine: MacBook M3 Pro with built-in webcam (narrower FOV than iPad's 122° ultra-wide — user stands further back for full-body visibility).
 
+## Landing Page
+
+The dashboard opens with a full-screen landing page featuring:
+
+- **Image slideshow:** 10 senior activity photos with Ken Burns zoom/pan animations
+- **8-second transitions:** Crossfade between images with random animation selection
+- **Branding:** "MayaMind" title (orange) and tagline positioned at 2/3 down, 2/3 right
+- **Tap to enter:** Tap anywhere to dismiss and enter the dashboard
+- **Settings access:** Gear icon in top-right corner
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `dashboard/landing.js` | Slideshow logic, Ken Burns animations, image preloading |
+| `dashboard/styles.css` | Ken Burns keyframe animations, landing page layout |
+| `images/*.jpg` | Senior activity photos (Unsplash/Pexels) |
+
+### Ken Burns Animations
+
+Four animation types cycle randomly:
+- `ken-burns-zoom-in` — Scale 1.0 → 1.15
+- `ken-burns-zoom-out` — Scale 1.15 → 1.0
+- `ken-burns-pan-left` — Translate 5% → -5%
+- `ken-burns-pan-right` — Translate -5% → 5%
+
+Respects `prefers-reduced-motion` for accessibility.
+
 ## Unified Dashboard (dashboard/)
 
-The dashboard combines all features into a single iPad-optimized interface. Accessible at `http://localhost:3000/dashboard/`.
+The dashboard combines all features into a single iPad-optimized interface. Accessible at `http://localhost:3000/dashboard/` (local) or `https://companion.mayamind.ai/dashboard/` (production).
 
 ### Navigation
 
@@ -303,6 +341,7 @@ node server/server.js
 | File | Purpose |
 |------|---------|
 | `dashboard/app.js` | Navigation controller, section lifecycle, WhatsApp notification badges, global mute state |
+| `dashboard/landing.js` | Landing page slideshow with Ken Burns animations |
 | `dashboard/sections/maya/maya-section.js` | Full Maya conversation pipeline with personalization |
 | `dashboard/sections/connect/connect-section.js` | WhatsApp messaging: TalkingHead avatar, voice, Claude conversation, ACTION tags |
 | `dashboard/sections/exercise/exercise-section.js` | Native exercise coaching: camera, MediaPipe, TalkingHead avatar, voice workflow |
@@ -565,12 +604,20 @@ Follows the same sql.js + localStorage pattern as `personalization-store.js`. St
 - `contacts` — id, name, phone (unique), created_at
 - `messages` — id, contact_id, direction (sent/received), type (text/voice/image), body, media_url, timestamp, read
 
-### Twilio Sandbox Setup
+### WhatsApp Number Options
+
+**Production (recommended):** Register a dedicated Twilio phone number as a WhatsApp Business sender. No opt-in required, permanent messaging.
+
+- See `docs/CONFIGURE_TWILIO_WHATSAPP_NUMBER.md` for detailed setup instructions
+- Example: `TWILIO_WHATSAPP_NUMBER=whatsapp:+13412014043`
+- Webhook URL: `https://companion.mayamind.ai/api/whatsapp/webhook`
+
+**Sandbox (development only):** For quick testing without Meta Business approval.
 
 1. Activate sandbox: Twilio Console → Messaging → Try it out → Send a WhatsApp message
 2. Each contact must opt in by sending `join <sandbox-code>` to `+14155238886`
 3. Configure webhook URL in Sandbox Settings → "When a message comes in" → `https://<ngrok-url>/api/whatsapp/webhook` (POST)
-4. Use a static ngrok domain (`ngrok http 3000 --url=your-domain.ngrok-free.dev`) to avoid URL changes between sessions
+4. **Limitation:** Opt-in expires every 72 hours
 
 ### Key Implementation Details
 
@@ -665,6 +712,54 @@ The app uses `HKObserverQuery` for real-time HealthKit updates plus a 60-second 
 
 Hit `http://localhost:3000/api/health/test` in a browser to generate mock vitals data. This pushes a randomized vitals payload via SSE to any connected Health section, allowing UI development without the iPhone companion or Apple Watch.
 
+## Production Deployment
+
+MayaMind is deployed at **https://companion.mayamind.ai** on a Hostinger VPS running Ubuntu 24.04 LTS.
+
+### Server Details
+
+| Component | Value |
+|-----------|-------|
+| VPS | Hostinger (srv949461.hstgr.cloud) |
+| IP | 31.97.42.20 |
+| OS | Ubuntu 24.04 LTS |
+| Web Server | Nginx (reverse proxy) |
+| Process Manager | systemd |
+| SSL | Let's Encrypt (auto-renewal via Certbot) |
+| App Port | 3001 |
+
+### Deployment Files
+
+| File | Purpose |
+|------|---------|
+| `deploy/DEPLOYMENT.md` | Complete step-by-step deployment guide |
+| `deploy/nginx-companion.conf` | Nginx reverse proxy configuration |
+| `deploy/mayamind.service` | Systemd service file |
+| `deploy/env.production.template` | Environment variables template |
+
+### Useful Commands
+
+```bash
+# SSH into server
+ssh root@31.97.42.20
+
+# Service management
+sudo systemctl status mayamind
+sudo systemctl restart mayamind
+sudo journalctl -u mayamind -f
+
+# Deploy updates
+cd ~/venv/mayamind-poc
+rsync -avz --exclude 'node_modules' --exclude '.env' --exclude '.git' \
+  ./ root@31.97.42.20:/var/www/mayamind/
+ssh root@31.97.42.20 "sudo systemctl restart mayamind"
+```
+
+### Related Documentation
+
+- `deploy/DEPLOYMENT.md` — Full deployment walkthrough
+- `docs/CONFIGURE_TWILIO_WHATSAPP_NUMBER.md` — WhatsApp Business number setup
+
 ## GitHub
 
 - Account: https://github.com/vjnadkarni
@@ -679,3 +774,5 @@ Hit `http://localhost:3000/api/health/test` in a browser to generate mock vitals
 - ElevenLabs TTS: https://elevenlabs.io/docs/api-reference/text-to-speech
 - Anthropic streaming: https://docs.anthropic.com/en/api/messages-streaming
 - Supabase: https://supabase.com/docs
+- Twilio WhatsApp API: https://www.twilio.com/docs/whatsapp
+- Let's Encrypt / Certbot: https://certbot.eff.org/
