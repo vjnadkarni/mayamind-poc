@@ -3,7 +3,7 @@
 //  MayaMind
 //
 //  WKWebView wrapper for TalkingHead 3D avatar
-//  Runs bundled HTML/JS/WebGL assets
+//  Loads avatar page from server to avoid cross-origin module issues
 //
 
 import SwiftUI
@@ -13,11 +13,14 @@ struct AvatarWebView: UIViewRepresentable {
     @Binding var mood: String
     @Binding var isSpeaking: Bool
 
+    // Server URL for avatar page
+    private let avatarURL = "https://companion.mayamind.ai/dashboard/avatar-ios.html"
+
     // Callbacks from JavaScript
     var onReady: (() -> Void)?
     var onSpeakingEnd: (() -> Void)?
 
-    // Audio data to speak
+    // Audio data for lip-sync (WKWebView plays audio + animates lips)
     var audioToSpeak: AvatarAudioData?
 
     func makeUIView(context: Context) -> WKWebView {
@@ -39,11 +42,12 @@ struct AvatarWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
-        webView.backgroundColor = .clear
+        webView.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.18, alpha: 1.0)
 
-        // Load bundled avatar HTML
-        if let url = Bundle.main.url(forResource: "avatar", withExtension: "html", subdirectory: "WebAssets") {
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        // Load avatar page from server
+        if let url = URL(string: avatarURL) {
+            print("[AvatarWebView] Loading: \(avatarURL)")
+            webView.load(URLRequest(url: url))
         }
 
         context.coordinator.webView = webView
@@ -51,20 +55,24 @@ struct AvatarWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // Only call JS functions after avatar is ready
+        guard context.coordinator.isAvatarReady else { return }
+
         // Update mood
         if context.coordinator.currentMood != mood {
             context.coordinator.currentMood = mood
             webView.evaluateJavaScript("setMood('\(mood)')") { _, error in
                 if let error = error {
-                    print("Error setting mood: \(error)")
+                    print("[AvatarWebView] Error setting mood: \(error)")
                 }
             }
         }
 
-        // Speak audio if provided
+        // Start lip-sync with audio playback if audio data provided
+        // WKWebView handles both audio + lip animation (AVAudioSession deactivated by Swift)
         if let audio = audioToSpeak, audio.id != context.coordinator.lastAudioId {
             context.coordinator.lastAudioId = audio.id
-            speakAudio(webView: webView, audio: audio)
+            startLipsync(webView: webView, audio: audio, context: context)
         }
     }
 
@@ -72,22 +80,33 @@ struct AvatarWebView: UIViewRepresentable {
         Coordinator(self)
     }
 
-    private func speakAudio(webView: WKWebView, audio: AvatarAudioData) {
+    /// Start lip-sync with audio playback in WKWebView
+    /// WKWebView handles both audio and lip animation (Swift deactivates AVAudioSession first)
+    private func startLipsync(webView: WKWebView, audio: AvatarAudioData, context: Context) {
         // Convert audio data to base64 for JavaScript
-        let base64Audio = audio.audioData.base64EncodedString()
+        let audioBase64 = audio.audioData.base64EncodedString()
 
+        // Convert arrays to JSON strings
+        let wordsJSON = (try? JSONSerialization.data(withJSONObject: audio.words))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let timesJSON = (try? JSONSerialization.data(withJSONObject: audio.wordTimes))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        let durationsJSON = (try? JSONSerialization.data(withJSONObject: audio.wordDurations))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+
+        // Call startLipsync() with audio + word timing for full lip-sync
         let js = """
-        speakAudio({
-            audio: Uint8Array.from(atob('\(base64Audio)'), c => c.charCodeAt(0)).buffer,
-            words: \(audio.words),
-            wtimes: \(audio.wordTimes),
-            wdurations: \(audio.wordDurations)
-        });
+        startLipsync('\(audioBase64)', \(wordsJSON), \(timesJSON), \(durationsJSON));
         """
 
+        print("[AvatarWebView] Calling startLipsync with \(audio.words.count) words")
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
-                print("Error calling speakAudio: \(error)")
+                print("[AvatarWebView] Error calling startLipsync: \(error)")
+                // Notify that speaking ended (with error)
+                DispatchQueue.main.async {
+                    context.coordinator.parent.onSpeakingEnd?()
+                }
             }
         }
     }
@@ -97,6 +116,7 @@ struct AvatarWebView: UIViewRepresentable {
         weak var webView: WKWebView?
         var currentMood: String = "neutral"
         var lastAudioId: String?
+        var isAvatarReady = false  // Track when JS avatar is ready
 
         init(_ parent: AvatarWebView) {
             self.parent = parent
@@ -110,24 +130,40 @@ struct AvatarWebView: UIViewRepresentable {
             DispatchQueue.main.async {
                 switch event {
                 case "ready":
+                    self.isAvatarReady = true
+                    print("[AvatarWebView] Avatar ready - JS functions available")
                     self.parent.onReady?()
                 case "speakingStart":
+                    print("[AvatarWebView] JS: speakingStart")
                     self.parent.isSpeaking = true
                 case "speakingEnd":
+                    print("[AvatarWebView] JS: speakingEnd")
                     self.parent.isSpeaking = false
                     self.parent.onSpeakingEnd?()
+                case "debug":
+                    if let msg = body["message"] as? String {
+                        print("[AvatarWebView] JS: \(msg)")
+                    }
+                case "error":
+                    if let msg = body["message"] as? String {
+                        print("[AvatarWebView] JS ERROR: \(msg)")
+                    }
                 default:
-                    break
+                    print("[AvatarWebView] JS event: \(event)")
                 }
             }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Page loaded
+            print("[AvatarWebView] Page loaded successfully")
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            print("WebView navigation failed: \(error)")
+            print("[AvatarWebView] Navigation failed: \(error)")
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            print("[AvatarWebView] Provisional navigation failed: \(error)")
         }
     }
 }

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Maya Avatar</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: transparent;
+        }
+        #avatar-container {
+            width: 100%;
+            height: 100%;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #888;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 14px;
+            text-align: center;
+        }
+        #loading.hidden { display: none; }
+    </style>
+
+    <!-- Import map for Three.js from CDN -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="loading">Loading Maya...</div>
+    <div id="avatar-container"></div>
+
+    <script type="module">
+        // TalkingHead module loaded from companion server
+        const TALKINGHEAD_URL = 'https://companion.mayamind.ai/modules/talkinghead.mjs';
+        const AVATAR_URL = 'https://companion.mayamind.ai/avatars/brunette.glb';
+
+        let head = null;
+        let audioContext = null;
+        let isReady = false;
+
+        // Post message to Swift
+        function postToSwift(event, data = {}) {
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.mayamind) {
+                window.webkit.messageHandlers.mayamind.postMessage({ event, ...data });
+            }
+        }
+
+        // Initialize audio context (must be triggered by user interaction on iOS)
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            return audioContext;
+        }
+
+        // Initialize TalkingHead
+        async function init() {
+            try {
+                console.log('[Avatar] Loading TalkingHead module...');
+                const module = await import(TALKINGHEAD_URL);
+                const TalkingHead = module.TalkingHead;
+
+                const container = document.getElementById('avatar-container');
+                const ctx = initAudioContext();
+
+                console.log('[Avatar] Creating TalkingHead instance...');
+                head = new TalkingHead(container, {
+                    ttsEndpoint: null,
+                    audioCtx: ctx,
+                    cameraView: 'upper',
+                    cameraRotateEnable: false,  // Disable rotation on mobile
+                    lipsyncLang: 'en',
+                    lipsyncModules: ['en'],
+                });
+
+                console.log('[Avatar] Loading avatar model...');
+                await head.showAvatar({
+                    url: AVATAR_URL,
+                    body: 'F',
+                    avatarMood: 'happy',
+                    lipsyncLang: 'en',
+                });
+
+                // Set initial mood
+                head.setMood('happy');
+
+                // Hide loading indicator
+                document.getElementById('loading').classList.add('hidden');
+
+                isReady = true;
+                console.log('[Avatar] Ready');
+                postToSwift('ready');
+
+            } catch (err) {
+                console.error('[Avatar] Init error:', err);
+                document.getElementById('loading').textContent = 'Error loading avatar';
+                postToSwift('error', { message: err.message });
+            }
+        }
+
+        // Set avatar mood (called from Swift)
+        window.setMood = function(mood) {
+            if (!head || !isReady) {
+                console.warn('[Avatar] Not ready, ignoring setMood');
+                return;
+            }
+            console.log('[Avatar] Setting mood:', mood);
+            try {
+                head.setMood(mood);
+            } catch (err) {
+                console.error('[Avatar] setMood error:', err);
+            }
+        };
+
+        // Speak with audio and lip-sync (called from Swift)
+        // audioData: { audio: ArrayBuffer, words: string[], wtimes: number[], wdurations: number[] }
+        window.speakAudio = async function(audioData) {
+            if (!head || !isReady) {
+                console.warn('[Avatar] Not ready, ignoring speakAudio');
+                postToSwift('speakingEnd');
+                return;
+            }
+
+            console.log('[Avatar] speakAudio called, words:', audioData.words?.length || 0);
+
+            try {
+                // Ensure audio context is active
+                initAudioContext();
+
+                postToSwift('speakingStart');
+
+                // Decode audio buffer
+                const ctx = audioContext;
+                const audioBuf = await ctx.decodeAudioData(audioData.audio.slice(0));
+
+                // Speak with lip-sync
+                head.speakAudio(
+                    {
+                        audio: audioBuf,
+                        words: audioData.words || [],
+                        wtimes: audioData.wtimes || [],
+                        wdurations: audioData.wdurations || []
+                    },
+                    { lipsyncLang: 'en' }
+                );
+
+                // Wait for speech to end
+                await waitForSpeechEnd();
+
+                console.log('[Avatar] Speech complete');
+                postToSwift('speakingEnd');
+
+            } catch (err) {
+                console.error('[Avatar] speakAudio error:', err);
+                postToSwift('speakingEnd');
+            }
+        };
+
+        // Wait for avatar to stop speaking
+        function waitForSpeechEnd() {
+            return new Promise((resolve) => {
+                const check = () => {
+                    if (!head.isSpeaking) {
+                        resolve();
+                    } else {
+                        requestAnimationFrame(check);
+                    }
+                };
+                check();
+            });
+        }
+
+        // Stop speaking (called from Swift for barge-in)
+        window.stopSpeaking = function() {
+            if (head && head.isSpeaking) {
+                console.log('[Avatar] Stopping speech');
+                head.stopSpeaking();
+            }
+        };
+
+        // Touch to activate audio context (iOS requirement)
+        document.addEventListener('touchstart', () => {
+            initAudioContext();
+        }, { once: true });
+
+        // Start initialization
+        init();
+    </script>
+</body>
+</html>

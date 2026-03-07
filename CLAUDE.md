@@ -87,6 +87,7 @@ mayamind-poc/
 │   └── package.json
 ├── dashboard/              # Unified dashboard app (current development)
 │   ├── index.html          # Dashboard shell with 4-block grid
+│   ├── avatar-ios.html     # TalkingHead avatar for iOS WKWebView
 │   ├── app.js              # Main orchestrator + navigation
 │   ├── styles.css          # Touch-friendly iPad styles
 │   ├── lib/                # Third-party libraries
@@ -136,7 +137,8 @@ mayamind-poc/
 │       │   └── iPhoneTabView.swift
 │       ├── iPad/            # iPad-specific views
 │       │   └── iPadSplitView.swift
-│       ├── WebView/         # WKWebView wrapper (for TalkingHead)
+│       ├── WebView/         # WKWebView wrapper for TalkingHead
+│       │   └── AvatarWebView.swift    # WKWebView + JS bridge for lip-sync
 │       └── Resources/
 │           └── Info.plist
 ├── companion-ios/           # iPhone companion app (HealthKit → server)
@@ -756,8 +758,8 @@ Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a
 | Speech Recognition | Apple Speech framework (`SFSpeechRecognizer`) |
 | Text-to-Speech | ElevenLabs via server `/api/tts` endpoint |
 | LLM | Claude API via server `/api/chat` endpoint |
-| Avatar | TalkingHead via WKWebView (planned) |
-| Audio Playback | AVAudioPlayer |
+| Avatar | TalkingHead via WKWebView (`/dashboard/avatar-ios.html`) |
+| Audio Playback | WKWebView AudioContext (lip-synced), AVAudioPlayer (fallback) |
 
 ### Key Implementation Details
 
@@ -788,6 +790,26 @@ Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a
 3. Build and Run (Cmd+R)
 4. Tap "Get Started" → Maya auto-starts listening
 
+### TalkingHead Avatar (WKWebView)
+
+The 3D avatar runs in WKWebView, loading from the server at `/dashboard/avatar-ios.html`. Key implementation details:
+
+**Audio Session Management:**
+- Swift deactivates `AVAudioSession` before calling `startLipsync()` to avoid AudioContext conflicts
+- WKWebView handles both audio playback and lip animation
+- Speech recognition stops during TTS, restarts after `speakingEnd` event
+
+**Manual Lip-Sync Implementation:**
+- TalkingHead's internal animation queue doesn't work reliably in WKWebView
+- Solution: Direct morph target manipulation via `setTimeout` scheduling
+- Uses ElevenLabs word timing data (`wtimes`, `wdurations`) for precise viseme placement
+- `lipsyncWordsToVisemes()` converts words to Oculus viseme set (aa, E, I, O, U, PP, FF, TH, DD, kk, CH, SS, nn, RR, sil)
+
+**Swift-JavaScript Bridge:**
+- `WKScriptMessageHandler` receives events: `ready`, `speakingStart`, `speakingEnd`, `error`
+- `evaluateJavaScript()` calls `setMood()`, `startLipsync()`, `stopSpeaking()`
+- Audio data passed as base64-encoded string with JSON word timing arrays
+
 ### Current Status
 
 | Feature | Status |
@@ -796,7 +818,7 @@ Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a
 | Speech recognition | Working (auto-silence detection) |
 | TTS (Maya speaks) | Working |
 | Claude API integration | Working |
-| TalkingHead avatar | Planned (WKWebView) |
+| TalkingHead avatar | Working (WKWebView + lip-sync) |
 | Exercise coaching | Placeholder |
 | Health monitoring | Placeholder |
 | Connect (WhatsApp) | Placeholder |

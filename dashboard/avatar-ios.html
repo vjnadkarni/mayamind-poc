@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Maya Avatar</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #1a1a2e;
+        }
+        #avatar-container {
+            width: 100%;
+            height: 100%;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #888;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-size: 14px;
+            text-align: center;
+        }
+        #loading.hidden { display: none; }
+    </style>
+
+    <!-- Import map for Three.js from CDN -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="loading">Loading Maya...</div>
+    <div id="avatar-container"></div>
+
+    <script type="module">
+        // TalkingHead module - relative path since we're on the same server
+        const TALKINGHEAD_URL = '/modules/talkinghead.mjs';
+        const AVATAR_URL = '/avatars/brunette.glb';
+
+        let head = null;
+        let audioContext = null;
+        let isReady = false;
+
+        // Post message to Swift (iOS WKWebView)
+        function postToSwift(event, data = {}) {
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.mayamind) {
+                window.webkit.messageHandlers.mayamind.postMessage({ event, ...data });
+            }
+        }
+
+        // Initialize audio context (must be triggered by user interaction on iOS)
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            return audioContext;
+        }
+
+        // Initialize TalkingHead
+        async function init() {
+            try {
+                const module = await import(TALKINGHEAD_URL);
+                const TalkingHead = module.TalkingHead;
+
+                const container = document.getElementById('avatar-container');
+                const ctx = initAudioContext();
+
+                head = new TalkingHead(container, {
+                    ttsEndpoint: null,
+                    audioCtx: ctx,
+                    cameraView: 'upper',
+                    cameraRotateEnable: false,
+                    lipsyncLang: 'en',
+                    lipsyncModules: ['en'],
+                });
+
+                await head.showAvatar({
+                    url: AVATAR_URL,
+                    body: 'F',
+                    avatarMood: 'happy',
+                    lipsyncLang: 'en',
+                });
+
+                head.setMood('happy');
+                document.getElementById('loading').classList.add('hidden');
+
+                isReady = true;
+                postToSwift('ready');
+
+            } catch (err) {
+                console.error('[Avatar] Init error:', err);
+                document.getElementById('loading').textContent = 'Error: ' + err.message;
+                postToSwift('error', { message: err.message });
+            }
+        }
+
+        // Expose functions globally for Swift to call
+        window.setMood = function(mood) {
+            if (!head || !isReady) return;
+            try {
+                head.setMood(mood);
+            } catch (err) {
+                console.error('[Avatar] setMood error:', err);
+            }
+        };
+
+        // Lip-sync with audio - WKWebView handles both audio playback and lip animation
+        // Swift must deactivate AVAudioSession before calling this to avoid conflicts
+        window.startLipsync = function(audioBase64, words, wtimes, wdurations) {
+            if (!head || !isReady) {
+                postToSwift('debug', { message: 'Not ready, ignoring startLipsync' });
+                postToSwift('speakingEnd');
+                return;
+            }
+
+            // Run async work inside
+            (async () => {
+                try {
+                    initAudioContext();
+
+                    // Resume audio context if suspended
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+
+                    // Decode base64 audio to ArrayBuffer
+                    const binaryString = atob(audioBase64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const arrayBuffer = bytes.buffer;
+
+                    // Decode to AudioBuffer
+                    const audioBuf = await audioContext.decodeAudioData(arrayBuffer);
+
+                    postToSwift('speakingStart');
+
+                    // Use TalkingHead's speakAudio with full audio + lip-sync
+                    head.speakAudio(
+                        {
+                            audio: audioBuf,
+                            words: words || [],
+                            wtimes: wtimes || [],
+                            wdurations: wdurations || []
+                        },
+                        { lipsyncLang: 'en' }
+                    );
+
+                    // Wait for audio duration
+                    const waitTime = audioBuf.duration * 1000 + 500;
+
+                    // Manual lip-sync: Animate visemes based on word timing
+                    // This bypasses TalkingHead's broken animation queue
+                    const visemeMap = {
+                        'aa': 'viseme_aa', 'E': 'viseme_E', 'I': 'viseme_I',
+                        'O': 'viseme_O', 'U': 'viseme_U', 'PP': 'viseme_PP',
+                        'FF': 'viseme_FF', 'TH': 'viseme_TH', 'DD': 'viseme_DD',
+                        'kk': 'viseme_kk', 'CH': 'viseme_CH', 'SS': 'viseme_SS',
+                        'nn': 'viseme_nn', 'RR': 'viseme_RR', 'sil': 'viseme_sil'
+                    };
+
+                    // Get all meshes with morph targets
+                    const morphMeshes = [];
+                    function findMorphMeshes(node) {
+                        if (node.isMesh && node.morphTargetDictionary && node.morphTargetInfluences) {
+                            morphMeshes.push(node);
+                        }
+                        if (node.children) node.children.forEach(findMorphMeshes);
+                    }
+                    if (head.armature) findMorphMeshes(head.armature);
+
+                    // Function to set a viseme
+                    function setViseme(visemeName, value) {
+                        for (const mesh of morphMeshes) {
+                            const idx = mesh.morphTargetDictionary[visemeName];
+                            if (idx !== undefined) {
+                                mesh.morphTargetInfluences[idx] = value;
+                            }
+                        }
+                    }
+
+                    // Function to reset all visemes
+                    function resetVisemes() {
+                        for (const mesh of morphMeshes) {
+                            for (const vName of Object.values(visemeMap)) {
+                                const idx = mesh.morphTargetDictionary[vName];
+                                if (idx !== undefined) {
+                                    mesh.morphTargetInfluences[idx] = 0;
+                                }
+                            }
+                        }
+                    }
+
+                    // Schedule viseme animations based on word timing
+                    let visemeTimeouts = [];
+
+                    for (let i = 0; i < words.length; i++) {
+                        const word = words[i];
+                        const wordStart = wtimes[i] * 1000; // Convert to ms
+                        const wordDuration = wdurations[i] * 1000;
+
+                        // Get visemes for this word
+                        const preprocessed = head.lipsyncPreProcessText ? head.lipsyncPreProcessText(word, 'en') : word;
+                        const visemeResult = head.lipsyncWordsToVisemes ? head.lipsyncWordsToVisemes(preprocessed, 'en') : null;
+
+                        if (visemeResult && visemeResult.visemes && visemeResult.visemes.length > 0) {
+                            const visemes = visemeResult.visemes;
+                            const vTimes = visemeResult.times;
+                            const vDurations = visemeResult.durations;
+                            const totalVisemeDuration = vTimes[visemes.length - 1] + vDurations[visemes.length - 1];
+
+                            for (let j = 0; j < visemes.length; j++) {
+                                const viseme = visemes[j];
+                                const visemeName = visemeMap[viseme] || 'viseme_sil';
+                                const relTime = totalVisemeDuration > 0 ? (vTimes[j] / totalVisemeDuration) * wordDuration : 0;
+                                const absTime = wordStart + relTime;
+
+                                // Schedule viseme on
+                                visemeTimeouts.push(setTimeout(() => {
+                                    resetVisemes();
+                                    setViseme(visemeName, 0.7);
+                                }, absTime));
+                            }
+                        }
+                    }
+
+                    // Reset visemes when audio ends
+                    visemeTimeouts.push(setTimeout(() => {
+                        resetVisemes();
+                    }, audioBuf.duration * 1000));
+
+                    // Wait for audio to finish
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+
+                    // Clear any pending viseme timeouts (in case of early exit)
+                    visemeTimeouts.forEach(t => clearTimeout(t));
+
+                    postToSwift('speakingEnd');
+
+                } catch (err) {
+                    postToSwift('debug', { message: 'ERROR: ' + err.message });
+                    postToSwift('speakingEnd');
+                }
+            })();
+        };
+
+        window.stopSpeaking = function() {
+            if (head && head.isSpeaking) {
+                head.stopSpeaking();
+            }
+        };
+
+        // Touch to activate audio context (iOS requirement)
+        document.addEventListener('touchstart', () => {
+            initAudioContext();
+        }, { once: true });
+
+        // Start initialization
+        init();
+    </script>
+</body>
+</html>
