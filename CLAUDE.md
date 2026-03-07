@@ -9,6 +9,8 @@ The **proof-of-concept** (tagged `v0.1.0`) validated the core conversation loop:
 
 The project is now building a **unified dashboard** that combines the avatar conversation with exercise coaching, personalization, health monitoring, and Connect (WhatsApp messaging) into a single iPad-optimized interface. The conversation pipeline includes Claude's native web search tool for real-time information (weather, news, sports scores).
 
+A **native iOS app** (SwiftUI) is in development to replace the web-based dashboard. iPhone is the primary device (always with the senior); iPad serves as the exercise companion with camera-based coaching.
+
 **Production deployment:** https://companion.mayamind.ai/dashboard/
 
 ## Product Documents
@@ -113,6 +115,30 @@ mayamind-poc/
 │       │   └── health-section.js
 │       └── connect/         # WhatsApp messaging via Twilio
 │           └── connect-section.js
+├── MayaMind/                # Native iOS app (iPhone + iPad Universal)
+│   └── MayaMind/
+│       ├── App/             # SwiftUI app entry point
+│       │   ├── MayaMindApp.swift
+│       │   └── AppState.swift
+│       ├── Core/            # Shared services
+│       │   └── Services/
+│       │       ├── ClaudeAPIService.swift    # Claude API with SSE streaming
+│       │       ├── SpeechRecognitionService.swift  # Apple Speech framework
+│       │       └── TTSService.swift          # ElevenLabs TTS via server
+│       ├── Features/        # Feature modules
+│       │   ├── Maya/        # Maya conversation
+│       │   │   └── MayaView.swift
+│       │   ├── Exercise/    # Exercise coaching (placeholder)
+│       │   ├── Health/      # Health monitoring (placeholder)
+│       │   ├── Connect/     # WhatsApp messaging (placeholder)
+│       │   └── Settings/    # App settings
+│       ├── iPhone/          # iPhone-specific views
+│       │   └── iPhoneTabView.swift
+│       ├── iPad/            # iPad-specific views
+│       │   └── iPadSplitView.swift
+│       ├── WebView/         # WKWebView wrapper (for TalkingHead)
+│       └── Resources/
+│           └── Info.plist
 ├── companion-ios/           # iPhone companion app (HealthKit → server)
 │   ├── README.md            # Xcode project setup instructions
 │   └── MayaMindCompanion/
@@ -711,6 +737,69 @@ The app uses `HKObserverQuery` for real-time HealthKit updates plus a 60-second 
 ### Testing Without Hardware
 
 Hit `http://localhost:3000/api/health/test` in a browser to generate mock vitals data. This pushes a randomized vitals payload via SSE to any connected Health section, allowing UI development without the iPhone companion or Apple Watch.
+
+## Native iOS App (MayaMind/)
+
+Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a native experience. iPhone is the primary device (always with the user); iPad serves as the exercise companion with camera-based coaching.
+
+### Architecture
+
+- **Universal app:** Single codebase, device-specific UIs via `iPhoneTabView` and `iPadSplitView`
+- **SwiftUI:** Declarative UI with `@StateObject`, `@Published`, `@EnvironmentObject`
+- **Server dependency:** Uses same `https://companion.mayamind.ai` backend as web dashboard
+
+### Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| UI Framework | SwiftUI |
+| Speech Recognition | Apple Speech framework (`SFSpeechRecognizer`) |
+| Text-to-Speech | ElevenLabs via server `/api/tts` endpoint |
+| LLM | Claude API via server `/api/chat` endpoint |
+| Avatar | TalkingHead via WKWebView (planned) |
+| Audio Playback | AVAudioPlayer |
+
+### Key Implementation Details
+
+**Speech Recognition (`SpeechRecognitionService.swift`):**
+- Uses `SFSpeechAudioBufferRecognitionRequest` for real-time streaming
+- 2-second silence timer auto-finalizes transcript (no tap required)
+- `lastGoodTranscript` workaround for Apple's empty final result bug
+- `requiresOnDeviceRecognition = false` — allows server-based recognition without Siri enabled
+
+**TTS (`TTSService.swift`):**
+- Fetches audio from `/api/tts` which returns JSON `{ audio_base64: "..." }`
+- Decodes base64, saves to temp `.mp3` file, plays via `AVAudioPlayer`
+- `AVAudioPlayerDelegate` fires `onSpeechComplete` callback when audio finishes
+
+**Conversation Flow (`MayaViewModel`):**
+- Auto-starts listening on view appear (after authorization)
+- User speaks → silence timeout → send to Claude → receive response → TTS plays → auto-restart listening
+- Continuous hands-free conversation without mic button taps
+
+**SwiftUI Threading:**
+- All UI updates wrapped in `Task { @MainActor in }` for proper observation
+- Callbacks from services use `DispatchQueue.main.async` or `@MainActor`
+
+### Running the iOS App
+
+1. Open `MayaMind/MayaMind.xcodeproj` in Xcode
+2. Select iPhone or iPad simulator/device
+3. Build and Run (Cmd+R)
+4. Tap "Get Started" → Maya auto-starts listening
+
+### Current Status
+
+| Feature | Status |
+|---------|--------|
+| Maya conversation (voice) | Working |
+| Speech recognition | Working (auto-silence detection) |
+| TTS (Maya speaks) | Working |
+| Claude API integration | Working |
+| TalkingHead avatar | Planned (WKWebView) |
+| Exercise coaching | Placeholder |
+| Health monitoring | Placeholder |
+| Connect (WhatsApp) | Placeholder |
 
 ## Production Deployment
 
