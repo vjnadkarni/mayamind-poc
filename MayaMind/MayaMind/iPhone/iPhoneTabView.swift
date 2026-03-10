@@ -46,11 +46,11 @@ struct iPhoneTabView: View {
                         }
                         .tag(AppSection.connect)
 
-                    SettingsView()
+                    ToDosView()
                         .tabItem {
-                            Label(AppSection.settings.rawValue, systemImage: AppSection.settings.icon)
+                            Label(AppSection.todos.rawValue, systemImage: AppSection.todos.icon)
                         }
-                        .tag(AppSection.settings)
+                        .tag(AppSection.todos)
                 }
                 .tint(Color.orange)
             }

@@ -11,6 +11,7 @@ import Combine
 struct HealthView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = HealthViewModel()
+    @State private var showSettings = false
 
     var body: some View {
         ZStack {
@@ -29,6 +30,16 @@ struct HealthView: View {
                     HStack(spacing: 8) {
                         ConnectionBadge(label: "Watch", isConnected: viewModel.watchConnected)
                         ConnectionBadge(label: "Scale", isConnected: viewModel.scaleConnected)
+                    }
+
+                    // Settings button
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.orange)
+                            .padding(10)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
                     }
                 }
                 .padding(.horizontal)
@@ -148,6 +159,10 @@ struct HealthView: View {
         }
         .onDisappear {
             viewModel.stopMonitoring()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environmentObject(appState)
         }
     }
 }

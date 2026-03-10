@@ -13,6 +13,7 @@ struct MayaView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = MayaViewModel()
     @State private var inputText = ""
+    @State private var showSettings = false
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
@@ -35,6 +36,16 @@ struct MayaView: View {
                             Image(systemName: appState.isMuted ? "mic.slash.fill" : "mic.fill")
                                 .font(.system(size: 20))
                                 .foregroundColor(appState.isMuted ? .red : .green)
+                                .padding(10)
+                                .background(Color.white.opacity(0.1))
+                                .cornerRadius(8)
+                        }
+
+                        // Settings button
+                        Button(action: { showSettings = true }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.orange)
                                 .padding(10)
                                 .background(Color.white.opacity(0.1))
                                 .cornerRadius(8)
@@ -158,6 +169,13 @@ struct MayaView: View {
             }
             .onAppear {
                 viewModel.requestSpeechAuthorization()
+            }
+            .onDisappear {
+                viewModel.cleanup()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+                    .environmentObject(appState)
             }
         }
     }
@@ -487,6 +505,22 @@ class MayaViewModel: ObservableObject {
     func stopSpeaking() {
         ttsService.stop()
         isSpeaking = false
+    }
+
+    /// Clean up when view disappears (release audio session for other views)
+    func cleanup() {
+        speechService.stopListening()
+        ttsService.stop()
+        isSpeaking = false
+        isListening = false
+
+        // Deactivate audio session so ExerciseView can use camera
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            print("[MayaViewModel] Audio session deactivated on cleanup")
+        } catch {
+            print("[MayaViewModel] Warning: Could not deactivate audio session: \(error)")
+        }
     }
 }
 

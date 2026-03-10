@@ -17,6 +17,7 @@ public/animations/
 
 # Xcode
 xcuserdata/
+Pods/
 *.xcuserstate
 DerivedData/
 *.moved-aside

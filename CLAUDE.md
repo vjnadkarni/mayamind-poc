@@ -119,20 +119,31 @@ mayamind-poc/
 ├── MayaMind/                # Native iOS app (iPhone + iPad Universal)
 │   └── MayaMind/
 │       ├── App/             # SwiftUI app entry point
-│       │   ├── MayaMindApp.swift
-│       │   └── AppState.swift
+│       │   └── MayaMindApp.swift      # App + AppState + AppSection enum
 │       ├── Core/            # Shared services
-│       │   └── Services/
-│       │       ├── ClaudeAPIService.swift    # Claude API with SSE streaming
-│       │       ├── SpeechRecognitionService.swift  # Apple Speech framework
-│       │       └── TTSService.swift          # ElevenLabs TTS via server
+│       │   ├── Services/
+│       │   │   ├── ClaudeAPIService.swift    # Claude API with SSE streaming
+│       │   │   ├── SpeechRecognitionService.swift  # Apple Speech framework
+│       │   │   ├── CameraService.swift       # AVCaptureSession management
+│       │   │   └── TTSService.swift          # ElevenLabs TTS via server
+│       │   ├── PoseEstimation/               # MediaPipe integration
+│       │   │   └── PoseEstimationService.swift
+│       │   └── ExerciseDetection/            # Exercise detectors
+│       │       └── ExerciseDetectors.swift   # Squat, Lunge, BicepsCurl, Pushup
 │       ├── Features/        # Feature modules
 │       │   ├── Maya/        # Maya conversation
 │       │   │   └── MayaView.swift
-│       │   ├── Exercise/    # Exercise coaching (placeholder)
+│       │   ├── Exercise/    # Exercise coaching
+│       │   │   ├── ExerciseView.swift        # Camera + pose detection + voice
+│       │   │   └── CameraPreviewView.swift   # AVCaptureVideoPreviewLayer wrapper
 │       │   ├── Health/      # Health monitoring (placeholder)
+│       │   │   └── HealthView.swift
 │       │   ├── Connect/     # WhatsApp messaging (placeholder)
-│       │   └── Settings/    # App settings
+│       │   │   └── ConnectView.swift
+│       │   ├── Settings/    # App settings
+│       │   │   └── SettingsView.swift
+│       │   └── ToDos/       # To Dos (placeholder)
+│       │       └── ToDosView.swift
 │       ├── iPhone/          # iPhone-specific views
 │       │   └── iPhoneTabView.swift
 │       ├── iPad/            # iPad-specific views
@@ -140,7 +151,8 @@ mayamind-poc/
 │       ├── WebView/         # WKWebView wrapper for TalkingHead
 │       │   └── AvatarWebView.swift    # WKWebView + JS bridge for lip-sync
 │       └── Resources/
-│           └── Info.plist
+│           ├── Info.plist
+│           └── pose_landmarker_heavy.task   # MediaPipe model
 ├── companion-ios/           # iPhone companion app (HealthKit → server)
 │   ├── README.md            # Xcode project setup instructions
 │   └── MayaMindCompanion/
@@ -761,12 +773,21 @@ Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a
 | Avatar | TalkingHead via WKWebView (`/dashboard/avatar-ios.html`) |
 | Audio Playback | WKWebView AudioContext (lip-synced), AVAudioPlayer (fallback) |
 
+### Navigation
+
+- **5 tabs:** Maya, Exercise, Health, Connect, To Dos
+- **Settings:** Accessed via gear icon in top-right of all screens (not in tab bar)
+- Settings opens as a sheet overlay
+
 ### Key Implementation Details
 
 **Speech Recognition (`SpeechRecognitionService.swift`):**
 - Uses `SFSpeechAudioBufferRecognitionRequest` for real-time streaming
 - 2-second silence timer auto-finalizes transcript (no tap required)
 - `lastGoodTranscript` workaround for Apple's empty final result bug
+- `hasSentFinalTranscript` flag prevents duplicate callbacks (silence timeout + final result)
+- `onError` callback enables auto-retry on transient "No speech detected" errors
+- `skipAudioSessionConfig` parameter avoids redundant audio session setup
 - `requiresOnDeviceRecognition = false` — allows server-based recognition without Siri enabled
 
 **TTS (`TTSService.swift`):**
@@ -778,6 +799,7 @@ Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a
 - Auto-starts listening on view appear (after authorization)
 - User speaks → silence timeout → send to Claude → receive response → TTS plays → auto-restart listening
 - Continuous hands-free conversation without mic button taps
+- `cleanup()` deactivates audio session on view disappear (releases for Exercise camera)
 
 **SwiftUI Threading:**
 - All UI updates wrapped in `Task { @MainActor in }` for proper observation
@@ -785,10 +807,17 @@ Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a
 
 ### Running the iOS App
 
-1. Open `MayaMind/MayaMind.xcodeproj` in Xcode
-2. Select iPhone or iPad simulator/device
-3. Build and Run (Cmd+R)
-4. Tap "Get Started" → Maya auto-starts listening
+1. Install CocoaPods dependencies:
+   ```bash
+   cd MayaMind && pod install
+   ```
+2. Open `MayaMind/MayaMind.xcworkspace` in Xcode (not `.xcodeproj`)
+3. Select iPhone or iPad simulator/device
+4. Build and Run (Cmd+R)
+5. Tap "Get Started" → Maya auto-starts listening
+
+**Dependencies (via CocoaPods):**
+- `MediaPipeTasksVision` — pose detection for exercise coaching
 
 ### TalkingHead Avatar (WKWebView)
 
@@ -810,6 +839,29 @@ The 3D avatar runs in WKWebView, loading from the server at `/dashboard/avatar-i
 - `evaluateJavaScript()` calls `setMood()`, `startLipsync()`, `stopSpeaking()`
 - Audio data passed as base64-encoded string with JSON word timing arrays
 
+### Exercise Coaching (`ExerciseView.swift`)
+
+Camera-based exercise coaching with MediaPipe pose detection and voice feedback:
+
+**Layout:**
+- Camera preview (48% height) with skeleton overlay
+- Maya avatar thumbnail (100x100) + chat window
+- Control buttons: Start/Stop + Camera switch + Mic mute
+- Exercise selection: Quick selector (recent) + dropdown menu
+
+**Features:**
+- MediaPipe Pose Landmarker (heavy model, GPU delegate)
+- 4 exercises: Squats, Lunges, Bicep Curls, Push-ups
+- Rep counting with form feedback (milestone announcements every 5 reps)
+- Voice-driven "Are you done?" prompt after 10s idle
+- Recent exercises persisted in UserDefaults (max 5)
+- TalkingHead avatar with lip-synced coaching
+
+**AVAudioSession Management:**
+- Deactivates before WKWebView audio playback
+- Reactivates after avatar finishes speaking
+- Enables seamless camera + speech recognition coexistence
+
 ### Current Status
 
 | Feature | Status |
@@ -819,9 +871,10 @@ The 3D avatar runs in WKWebView, loading from the server at `/dashboard/avatar-i
 | TTS (Maya speaks) | Working |
 | Claude API integration | Working |
 | TalkingHead avatar | Working (WKWebView + lip-sync) |
-| Exercise coaching | Placeholder |
+| Exercise coaching | Working (MediaPipe + voice feedback) |
 | Health monitoring | Placeholder |
 | Connect (WhatsApp) | Placeholder |
+| To Dos | Placeholder |
 
 ## Production Deployment
 

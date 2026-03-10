@@ -23,6 +23,9 @@ class SpeechRecognitionService: ObservableObject {
     // Keep track of the last non-empty transcript (workaround for empty final results)
     private var lastGoodTranscript = ""
 
+    // Prevent duplicate transcript callbacks (silence timeout + final result)
+    private var hasSentFinalTranscript = false
+
     // Silence detection timer
     private var silenceTimer: Timer?
     private let silenceTimeout: TimeInterval = 2.0  // Auto-finalize after 2 seconds of silence
@@ -32,6 +35,9 @@ class SpeechRecognitionService: ObservableObject {
 
     // Callback for interim results (for echo detection)
     var onInterimResult: ((String) -> Void)?
+
+    // Callback for errors (allows caller to retry)
+    var onError: ((Error) -> Void)?
 
     init() {
         speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -48,9 +54,13 @@ class SpeechRecognitionService: ObservableObject {
             guard let self = self else { return }
             print("[SpeechService] Silence timeout - auto-finalizing")
             DispatchQueue.main.async {
+                // Prevent duplicate callbacks
+                guard !self.hasSentFinalTranscript else { return }
+
                 let transcript = self.lastGoodTranscript
                 guard !transcript.isEmpty else { return }
 
+                self.hasSentFinalTranscript = true
                 self.transcript = ""
                 self.lastGoodTranscript = ""
                 self.stopListening()
@@ -90,7 +100,7 @@ class SpeechRecognitionService: ObservableObject {
         return micAuthorized
     }
 
-    func startListening() throws {
+    func startListening(skipAudioSessionConfig: Bool = false) throws {
         print("[SpeechService] startListening called")
 
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
@@ -101,11 +111,15 @@ class SpeechRecognitionService: ObservableObject {
         // Cancel any existing task
         stopListening()
 
-        // Configure audio session
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .allowBluetooth])
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        print("[SpeechService] Audio session configured")
+        // Configure audio session (skip if caller already configured it)
+        if !skipAudioSessionConfig {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .allowBluetooth])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            print("[SpeechService] Audio session configured")
+        } else {
+            print("[SpeechService] Skipping audio session config (already configured)")
+        }
 
         // Create recognition request
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
@@ -139,8 +153,9 @@ class SpeechRecognitionService: ObservableObject {
         }
         print("[SpeechService] Audio tap installed")
 
-        // Reset last good transcript
+        // Reset state for new listening session
         lastGoodTranscript = ""
+        hasSentFinalTranscript = false
 
         // Start recognition task
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
@@ -163,9 +178,16 @@ class SpeechRecognitionService: ObservableObject {
 
                     if result.isFinal {
                         print("[SpeechService] Final result received")
+                        // Prevent duplicate callbacks (silence timeout may have already sent)
+                        guard !self.hasSentFinalTranscript else {
+                            print("[SpeechService] Already sent via silence timeout, skipping")
+                            return
+                        }
+
                         // Use lastGoodTranscript if final is empty
                         let finalText = transcript.isEmpty ? self.lastGoodTranscript : transcript
                         print("[SpeechService] Sending final transcript: \(finalText)")
+                        self.hasSentFinalTranscript = true
                         self.transcript = ""
                         self.lastGoodTranscript = ""
 
@@ -181,6 +203,12 @@ class SpeechRecognitionService: ObservableObject {
 
                 if let error = error {
                     print("[SpeechService] Recognition error: \(error.localizedDescription)")
+                    // Prevent duplicate callbacks
+                    guard !self.hasSentFinalTranscript else {
+                        print("[SpeechService] Already sent transcript, ignoring error callback")
+                        return
+                    }
+
                     // If we have a good transcript, send it before stopping
                     let savedTranscript = self.lastGoodTranscript
                     self.lastGoodTranscript = ""
@@ -189,7 +217,11 @@ class SpeechRecognitionService: ObservableObject {
 
                     if !savedTranscript.isEmpty {
                         print("[SpeechService] Sending last good transcript on error: \(savedTranscript)")
+                        self.hasSentFinalTranscript = true
                         self.onTranscript?(savedTranscript)
+                    } else {
+                        // No transcript - notify caller so they can retry if needed
+                        self.onError?(error)
                     }
                 }
             }
@@ -199,9 +231,9 @@ class SpeechRecognitionService: ObservableObject {
         // Start audio engine
         audioEngine.prepare()
         try audioEngine.start()
-        print("[SpeechService] Audio engine started")
 
         isListening = true
+        print("[SpeechService] Listening started")
     }
 
     func stopListening() {

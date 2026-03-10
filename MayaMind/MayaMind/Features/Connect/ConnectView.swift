@@ -11,6 +11,7 @@ import Combine
 struct ConnectView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var viewModel = ConnectViewModel()
+    @State private var showSettings = false
 
     var body: some View {
         ZStack {
@@ -30,6 +31,16 @@ struct ConnectView: View {
                         Image(systemName: appState.isMuted ? "mic.slash.fill" : "mic.fill")
                             .font(.system(size: 20))
                             .foregroundColor(appState.isMuted ? .red : .green)
+                            .padding(10)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+
+                    // Settings button
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.orange)
                             .padding(10)
                             .background(Color.white.opacity(0.1))
                             .cornerRadius(8)
@@ -129,6 +140,10 @@ struct ConnectView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 8)
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environmentObject(appState)
         }
     }
 }

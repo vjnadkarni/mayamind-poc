@@ -9,11 +9,46 @@ Universal iOS app for iPhone and iPad. AI-powered wellness companion for seniors
 
 ## Requirements
 
-- Xcode 26.2+
-- iOS 17.0+
+- Xcode 15.0+
+- iOS 16.0+
 - Apple Developer account (for device testing)
+- iPhone 12 or newer (for MediaPipe performance)
 
-## Project Setup
+## Quick Start (Exercise with MediaPipe)
+
+### 1. Add MediaPipe Swift Package
+
+1. Open `MayaMind.xcodeproj` in Xcode
+2. Go to **File → Add Package Dependencies...**
+3. Enter URL: `https://github.com/google-ai-edge/mediapipe`
+4. Select version: **0.10.14** (or latest)
+5. Add the following products to MayaMind target:
+   - `MediaPipeTasksVision`
+
+### 2. Download Pose Landmarker Model
+
+```bash
+cd MayaMind/MayaMind/Resources
+curl -O https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task
+```
+
+### 3. Add Model to Xcode Project
+
+1. In Xcode, right-click on **Resources** folder
+2. Select **Add Files to "MayaMind"...**
+3. Select `pose_landmarker_heavy.task`
+4. Ensure **Copy items if needed** is checked
+5. Ensure **Add to targets: MayaMind** is checked
+
+### 4. Build and Run
+
+1. Select your iPhone device (not Simulator - camera required)
+2. Build and Run (Cmd+R)
+3. Grant camera and microphone permissions when prompted
+
+---
+
+## Full Project Setup
 
 Since Xcode project files are complex to generate, follow these steps to create the project:
 
@@ -174,3 +209,24 @@ Camera permission required. Point camera at yourself for pose detection.
 
 ### Connect Section
 Requires WhatsApp messages to/from the production number (+1 341 201 4043).
+
+## Troubleshooting
+
+### MediaPipe Build Errors
+
+If you get build errors related to MediaPipe:
+
+1. Clean build folder: **Product → Clean Build Folder** (Cmd+Shift+K)
+2. Reset package caches: **File → Packages → Reset Package Caches**
+3. Ensure minimum deployment target is iOS 16.0
+
+### Camera Not Working
+
+1. Check camera permission in Settings → MayaMind → Camera
+2. Ensure not running in Simulator (camera requires physical device)
+
+### Pose Detection Not Working
+
+1. Verify `pose_landmarker_heavy.task` is in the app bundle
+2. Check console for "Pose landmarker initialized" message
+3. Ensure good lighting and full body visible in frame

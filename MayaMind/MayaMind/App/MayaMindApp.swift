@@ -39,7 +39,7 @@ enum AppSection: String, CaseIterable {
     case exercise = "Exercise"
     case health = "Health"
     case connect = "Connect"
-    case settings = "Settings"
+    case todos = "To Dos"
 
     var icon: String {
         switch self {
@@ -47,7 +47,7 @@ enum AppSection: String, CaseIterable {
         case .exercise: return "figure.run"
         case .health: return "heart.fill"
         case .connect: return "message.fill"
-        case .settings: return "gearshape.fill"
+        case .todos: return "checklist"
         }
     }
 }
