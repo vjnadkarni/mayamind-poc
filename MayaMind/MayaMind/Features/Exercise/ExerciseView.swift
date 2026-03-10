@@ -370,7 +370,7 @@ class ExerciseViewModel: ObservableObject {
     private let cameraService = CameraService()
     private let poseService = PoseEstimationService()
     private let ttsService = TTSService()
-    private let speechService = SpeechRecognitionService()
+    private let speechService = SpeechRecognitionService.shared
     private var currentDetector: ExerciseDetectorProtocol?
     private var speechQueue: [String] = []
     private var lastAnnouncedRep = 0
@@ -510,6 +510,10 @@ class ExerciseViewModel: ObservableObject {
     private func stopListeningForResponse() {
         isListeningForResponse = false
         speechService.stopListening()
+        // Clear callbacks to prevent stale references
+        speechService.onTranscript = nil
+        speechService.onInterimResult = nil
+        speechService.onError = nil
     }
 
     func onAppear() {

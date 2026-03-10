@@ -29,7 +29,7 @@ class AppState: ObservableObject {
 
     // Services (initialized lazily)
     lazy var healthKitService = HealthKitService()
-    lazy var speechService = SpeechRecognitionService()
+    var speechService: SpeechRecognitionService { SpeechRecognitionService.shared }
     lazy var claudeService = ClaudeAPIService()
     lazy var cloudKitManager = CloudKitManager()
 }

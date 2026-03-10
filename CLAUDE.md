@@ -915,8 +915,33 @@ Real-time health data from Apple HealthKit with 24-hour trends and tap-to-expand
 | TalkingHead avatar | Working (WKWebView + lip-sync) |
 | Exercise coaching | Working (MediaPipe + voice feedback) |
 | Health monitoring | Working (HealthKit + sparklines) |
-| Connect (WhatsApp) | Placeholder |
+| Connect (WhatsApp) | Working (voice-driven messaging) |
 | To Dos | Placeholder |
+
+### Connect Section (iOS)
+
+Voice-driven WhatsApp messaging with TalkingHead avatar, matching the web dashboard implementation.
+
+**Architecture:**
+- `ConnectView.swift` — UI with avatar, chat transcript, contacts bar
+- `ConnectViewModel` — Voice pipeline, Claude conversation, ACTION tag parsing
+- `TwilioService.swift` — Send messages, SSE listener for incoming
+- `ClaudeAPIService.swift` — Uses `/api/chat/connect` endpoint
+
+**Features:**
+- Voice-driven conversation: "Send a message to Carol saying hello"
+- ACTION tag parsing: ADD_CONTACT, SEND_TEXT, SEND_VOICE, PLAY_MESSAGE
+- SSE listener for real-time incoming message notifications
+- Unread message banner with "Play" button
+- Contact quick-access bar with add contact support
+- TalkingHead avatar with lip-sync (same as Maya section)
+- Contacts persisted to UserDefaults
+
+**Key Implementation Details:**
+- SSE implemented via URLSessionDataDelegate for streaming connection
+- Contacts passed to Claude for context-aware responses
+- Incoming photo messages display inline thumbnails
+- Maya announces new messages when they arrive
 
 ## Production Deployment
 

@@ -249,7 +249,7 @@ class MayaViewModel: ObservableObject {
     @Published var pendingAvatarAudio: AvatarAudioData?
 
     private let claudeService = ClaudeAPIService()
-    private let speechService = SpeechRecognitionService()
+    private let speechService = SpeechRecognitionService.shared
     private let ttsService = TTSService()
     private var conversationHistory: [[String: String]] = []
     private var isSpeechAuthorized = false
@@ -509,17 +509,25 @@ class MayaViewModel: ObservableObject {
 
     /// Clean up when view disappears (release audio session for other views)
     func cleanup() {
-        speechService.stopListening()
         ttsService.stop()
         isSpeaking = false
         isListening = false
 
-        // Deactivate audio session so ExerciseView can use camera
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            print("[MayaViewModel] Audio session deactivated on cleanup")
-        } catch {
-            print("[MayaViewModel] Warning: Could not deactivate audio session: \(error)")
+        // Only clear callbacks and deactivate audio session if speech service is not being used by another view
+        if !speechService.isListening {
+            // Clear callbacks since no one is using speech
+            speechService.onTranscript = nil
+            speechService.onInterimResult = nil
+            speechService.onError = nil
+
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                print("[MayaViewModel] Audio session deactivated on cleanup")
+            } catch {
+                print("[MayaViewModel] Warning: Could not deactivate audio session: \(error)")
+            }
+        } else {
+            print("[MayaViewModel] Skipping cleanup - speech still active (another view using it)")
         }
     }
 }

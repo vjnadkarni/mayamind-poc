@@ -32,6 +32,7 @@ class ClaudeAPIService: ObservableObject {
         message: String,
         conversationHistory: [[String: String]],
         section: String = "maya",
+        contacts: [[String: String]]? = nil,
         onText: @escaping (String) -> Void,
         onComplete: @escaping () -> Void,
         onError: @escaping (Error) -> Void
@@ -56,10 +57,15 @@ class ClaudeAPIService: ObservableObject {
         var messages: [[String: String]] = conversationHistory
         messages.append(["role": "user", "content": message])
 
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "messages": messages,
             "timezone": timezone
         ]
+
+        // Add contacts for Connect section
+        if let contacts = contacts {
+            body["contacts"] = contacts
+        }
 
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)

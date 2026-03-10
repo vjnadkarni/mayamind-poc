@@ -11,6 +11,9 @@ import AVFoundation
 import Combine
 
 class SpeechRecognitionService: ObservableObject {
+    // Singleton to prevent multiple instances conflicting over audio resources
+    static let shared = SpeechRecognitionService()
+
     @Published var isListening = false
     @Published var transcript = ""
     @Published var error: Error?
@@ -26,6 +29,9 @@ class SpeechRecognitionService: ObservableObject {
     // Prevent duplicate transcript callbacks (silence timeout + final result)
     private var hasSentFinalTranscript = false
 
+    // Session ID to prevent callbacks from cancelled tasks firing
+    private var currentSessionId: UUID?
+
     // Silence detection timer
     private var silenceTimer: Timer?
     private let silenceTimeout: TimeInterval = 2.0  // Auto-finalize after 2 seconds of silence
@@ -39,7 +45,7 @@ class SpeechRecognitionService: ObservableObject {
     // Callback for errors (allows caller to retry)
     var onError: ((Error) -> Void)?
 
-    init() {
+    private init() {
         speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     }
 
@@ -50,10 +56,19 @@ class SpeechRecognitionService: ObservableObject {
         // Only start timer if we have a transcript to send
         guard !lastGoodTranscript.isEmpty else { return }
 
+        // Capture current session ID
+        let sessionId = currentSessionId
+
         silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceTimeout, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             print("[SpeechService] Silence timeout - auto-finalizing")
             DispatchQueue.main.async {
+                // Ignore if session changed
+                guard self.currentSessionId == sessionId else {
+                    print("[SpeechService] Ignoring silence timeout from old session")
+                    return
+                }
+
                 // Prevent duplicate callbacks
                 guard !self.hasSentFinalTranscript else { return }
 
@@ -157,11 +172,21 @@ class SpeechRecognitionService: ObservableObject {
         lastGoodTranscript = ""
         hasSentFinalTranscript = false
 
+        // Generate new session ID to invalidate callbacks from previous sessions
+        let sessionId = UUID()
+        currentSessionId = sessionId
+
         // Start recognition task
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
             guard let self = self else { return }
 
             DispatchQueue.main.async {
+                // Ignore callbacks from cancelled/old sessions
+                guard self.currentSessionId == sessionId else {
+                    print("[SpeechService] Ignoring callback from old session")
+                    return
+                }
+
                 if let result = result {
                     let transcript = result.bestTranscription.formattedString
                     print("[SpeechService] Transcript: \(transcript) (isFinal: \(result.isFinal))")
@@ -238,6 +263,9 @@ class SpeechRecognitionService: ObservableObject {
 
     func stopListening() {
         cancelSilenceTimer()
+
+        // Invalidate current session to ignore pending callbacks
+        currentSessionId = nil
 
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
