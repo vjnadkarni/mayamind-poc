@@ -40,8 +40,8 @@ Original `.docx` versions are also in `docs/` for reference but are no longer ma
 | Device Management | Apple Business Manager + MDM | Cloud | — |
 
 | WhatsApp Messaging | Twilio WhatsApp API | Cloud | Per-message |
-| Health Monitoring | Apple HealthKit (via iPhone companion) | iPhone + Server | Free |
-| Body Composition | Withings API (OAuth2) | Cloud | Free |
+| Health Monitoring | Apple HealthKit (direct + iCloud sync) | On-device | Free |
+| Body Composition | HealthKit (any connected scale) | On-device | Free |
 
 Key principle: **Three cloud APIs incur per-use charges** (Claude/web search, ElevenLabs, and Twilio). Everything else is on-device or free.
 
@@ -772,6 +772,8 @@ Native SwiftUI app for iPhone and iPad, replacing the web-based dashboard with a
 | LLM | Claude API via server `/api/chat` endpoint |
 | Avatar | TalkingHead via WKWebView (`/dashboard/avatar-ios.html`) |
 | Audio Playback | WKWebView AudioContext (lip-synced), AVAudioPlayer (fallback) |
+| Health Data | Apple HealthKit (direct device access, iCloud synced) |
+| Pose Detection | MediaPipe Pose Landmarker (via CocoaPods) |
 
 ### Navigation
 
@@ -862,6 +864,46 @@ Camera-based exercise coaching with MediaPipe pose detection and voice feedback:
 - Reactivates after avatar finishes speaking
 - Enables seamless camera + speech recognition coexistence
 
+### Health Monitoring (`HealthView.swift`)
+
+Real-time health data from Apple HealthKit with 24-hour trends and tap-to-expand details:
+
+**Data Sources:**
+- Apple Watch (heart rate, HRV, SpO2, steps, exercise minutes, sleep)
+- Smart Scale via HealthKit (weight, body fat %, lean body mass, BMI)
+- iCloud sync enables data sharing across devices on same Apple ID
+
+**Metrics Displayed:**
+- Heart Rate: Current BPM + 24h min/max + sparkline chart
+- HRV: Current ms + 24h range + sparkline
+- Blood Oxygen (SpO2): Current % + 24h range + sparkline (unavailable on US Apple Watch Series 9+ due to Masimo patent)
+- Steps: Today's count (live updating)
+- Exercise Minutes: Today's active minutes
+- Sleep: Total hours + stage breakdown (Deep/Core/REM/Awake) - requires wearing watch to bed
+
+**Body Composition:**
+- Weight, Body Fat %, Lean Body Mass, BMI
+- Shows most recent HealthKit reading (may be historical)
+
+**Tap-to-Expand Details:**
+- Large 24-hour trend chart with labeled axes
+- Hourly readings breakdown
+- Sleep stages with percentages and duration
+
+**Implementation:**
+- `HealthKitService.swift`: Authorization, observer queries, data fetching
+- Observer queries for real-time updates (heart rate, steps, HRV, SpO2, exercise, weight)
+- 24-hour sample history for sparkline charts
+- Connection badges show Watch/Scale data availability
+
+**Key Files:**
+| File | Purpose |
+|------|---------|
+| `Features/Health/HealthView.swift` | UI with cards, sparklines, detail sheets |
+| `Core/Services/HealthKitService.swift` | HealthKit authorization and queries |
+| `MayaMind.entitlements` | HealthKit entitlement |
+| `Resources/Info.plist` | NSHealthShareUsageDescription |
+
 ### Current Status
 
 | Feature | Status |
@@ -872,7 +914,7 @@ Camera-based exercise coaching with MediaPipe pose detection and voice feedback:
 | Claude API integration | Working |
 | TalkingHead avatar | Working (WKWebView + lip-sync) |
 | Exercise coaching | Working (MediaPipe + voice feedback) |
-| Health monitoring | Placeholder |
+| Health monitoring | Working (HealthKit + sparklines) |
 | Connect (WhatsApp) | Placeholder |
 | To Dos | Placeholder |
 
