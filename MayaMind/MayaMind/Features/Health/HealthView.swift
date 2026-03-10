@@ -123,12 +123,16 @@ struct HealthView: View {
                                 BodyCompCard(
                                     title: "Weight",
                                     value: viewModel.weight.map { String(format: "%.1f", $0) },
-                                    unit: "lbs"
+                                    unit: "lbs",
+                                    icon: "scalemass.fill",
+                                    color: .teal
                                 )
                                 BodyCompCard(
                                     title: "Body Fat",
                                     value: viewModel.bodyFatPercentage.map { String(format: "%.1f", $0) },
-                                    unit: "%"
+                                    unit: "%",
+                                    icon: "drop.fill",
+                                    color: .orange
                                 )
                             }
 
@@ -137,12 +141,16 @@ struct HealthView: View {
                                 BodyCompCard(
                                     title: "Lean Mass",
                                     value: viewModel.leanBodyMass.map { String(format: "%.1f", $0) },
-                                    unit: "lbs"
+                                    unit: "lbs",
+                                    icon: "dumbbell.fill",
+                                    color: .blue
                                 )
                                 BodyCompCard(
                                     title: "BMI",
                                     value: viewModel.bmi.map { String(format: "%.1f", $0) },
-                                    unit: ""
+                                    unit: "",
+                                    icon: "chart.bar.fill",
+                                    color: .green
                                 )
                             }
                         }
@@ -487,12 +495,18 @@ struct BodyCompCard: View {
     let title: String
     let value: String?
     let unit: String
+    let icon: String
+    let color: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 14))
-                .foregroundColor(.gray)
+            HStack {
+                Image(systemName: icon)
+                    .foregroundColor(color)
+                Text(title)
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+            }
             HStack(alignment: .bottom, spacing: 4) {
                 Text(value ?? "--")
                     .font(.system(size: 24, weight: .bold))
