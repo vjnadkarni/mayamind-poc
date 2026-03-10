@@ -47,7 +47,7 @@ struct HealthView: View {
                 .padding(.top, 8)
 
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 8) {
                         // Vitals row 1: Heart Rate & HRV
                         HStack(spacing: 12) {
                             VitalCard(
@@ -112,7 +112,7 @@ struct HealthView: View {
                         }
 
                         // Body composition section
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Body Composition")
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(.white)
@@ -146,7 +146,7 @@ struct HealthView: View {
                                 )
                             }
                         }
-                        .padding(.top, 8)
+                        .padding(.top, 4)
                     }
                     .padding()
                 }
@@ -286,10 +286,11 @@ struct VitalCard: View {
 
                 // Sparkline
                 SparklineView(dataPoints: stats.history, color: color)
-                    .frame(height: 30)
+                    .frame(height: 24)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .frame(height: 120)
+            .padding(10)
             .background(Color(hex: "1a1a2e"))
             .cornerRadius(16)
         }
@@ -329,8 +330,8 @@ struct SimpleHealthCard: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 110)
-        .padding(12)
+        .frame(height: 120)
+        .padding(10)
         .background(Color(hex: "1a1a2e"))
         .cornerRadius(16)
     }
@@ -386,8 +387,8 @@ struct SleepCard: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 110)
-            .padding(12)
+            .frame(height: 120)
+            .padding(10)
             .background(Color(hex: "1a1a2e"))
             .cornerRadius(16)
         }
@@ -505,7 +506,7 @@ struct BodyCompCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
+        .padding(10)
         .background(Color(hex: "151520"))
         .cornerRadius(12)
     }
