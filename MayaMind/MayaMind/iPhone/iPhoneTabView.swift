@@ -10,100 +10,40 @@ import SwiftUI
 struct iPhoneTabView: View {
     @EnvironmentObject var appState: AppState
     @State private var selectedTab: AppSection = .maya
-    @State private var showLanding = true
 
     var body: some View {
-        ZStack {
-            if showLanding {
-                iPhoneLandingView(onEnter: {
-                    withAnimation(.easeOut(duration: 0.5)) {
-                        showLanding = false
-                    }
-                })
-            } else {
-                TabView(selection: $selectedTab) {
-                    MayaView()
-                        .tabItem {
-                            Label(AppSection.maya.rawValue, systemImage: AppSection.maya.icon)
-                        }
-                        .tag(AppSection.maya)
-
-                    ExerciseView()
-                        .tabItem {
-                            Label(AppSection.exercise.rawValue, systemImage: AppSection.exercise.icon)
-                        }
-                        .tag(AppSection.exercise)
-
-                    HealthView()
-                        .tabItem {
-                            Label(AppSection.health.rawValue, systemImage: AppSection.health.icon)
-                        }
-                        .tag(AppSection.health)
-
-                    ConnectView()
-                        .tabItem {
-                            Label(AppSection.connect.rawValue, systemImage: AppSection.connect.icon)
-                        }
-                        .tag(AppSection.connect)
-
-                    ToDosView()
-                        .tabItem {
-                            Label(AppSection.todos.rawValue, systemImage: AppSection.todos.icon)
-                        }
-                        .tag(AppSection.todos)
+        TabView(selection: $selectedTab) {
+            MayaView()
+                .tabItem {
+                    Label(AppSection.maya.rawValue, systemImage: AppSection.maya.icon)
                 }
-                .tint(Color.orange)
-            }
-        }
-    }
-}
+                .tag(AppSection.maya)
 
-/// iPhone landing/splash view
-struct iPhoneLandingView: View {
-    let onEnter: () -> Void
-
-    var body: some View {
-        ZStack {
-            // Background gradient
-            LinearGradient(
-                colors: [Color(hex: "1a1a2e"), Color(hex: "0a0a10")],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 40) {
-                Spacer()
-
-                // App title
-                Text("MayaMind")
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(.orange)
-
-                // Tagline
-                Text("Your companion and\ncoach at home...")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-
-                Spacer()
-
-                // Enter button
-                Button(action: onEnter) {
-                    Text("Get Started")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 48)
-                        .padding(.vertical, 16)
-                        .background(Color.orange)
-                        .cornerRadius(30)
+            ExerciseView()
+                .tabItem {
+                    Label(AppSection.exercise.rawValue, systemImage: AppSection.exercise.icon)
                 }
-                .padding(.bottom, 60)
-            }
+                .tag(AppSection.exercise)
+
+            HealthView()
+                .tabItem {
+                    Label(AppSection.health.rawValue, systemImage: AppSection.health.icon)
+                }
+                .tag(AppSection.health)
+
+            ConnectView()
+                .tabItem {
+                    Label(AppSection.connect.rawValue, systemImage: AppSection.connect.icon)
+                }
+                .tag(AppSection.connect)
+
+            ToDosView()
+                .tabItem {
+                    Label(AppSection.todos.rawValue, systemImage: AppSection.todos.icon)
+                }
+                .tag(AppSection.todos)
         }
-        .onTapGesture {
-            onEnter()
-        }
+        .tint(Color.orange)
     }
 }
 

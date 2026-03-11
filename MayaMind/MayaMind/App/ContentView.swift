@@ -10,15 +10,30 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @State private var showLanding = true
 
     var body: some View {
-        Group {
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                // iPad: Landscape, exercise-focused layout
-                iPadMainView()
-            } else {
-                // iPhone: Portrait, tab-based navigation
-                iPhoneTabView()
+        ZStack {
+            // Main app content
+            Group {
+                if UIDevice.current.userInterfaceIdiom == .pad {
+                    // iPad: Landscape, exercise-focused layout
+                    iPadMainView()
+                } else {
+                    // iPhone: Portrait, tab-based navigation
+                    iPhoneTabView()
+                }
+            }
+
+            // Landing page overlay
+            if showLanding {
+                LandingView(onEnter: {
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        showLanding = false
+                    }
+                })
+                .transition(.opacity)
+                .zIndex(1)
             }
         }
         .preferredColorScheme(.dark)
