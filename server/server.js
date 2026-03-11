@@ -860,6 +860,55 @@ app.post('/api/chat/health', async (req, res) => {
   }
 });
 
+// ── ToDos Chat — Custom system prompt for JSON parsing ──────────────────────────
+app.post('/api/chat/todos', async (req, res) => {
+  const { message, system } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: 'message is required' });
+  }
+
+  if (!system) {
+    return res.status(400).json({ error: 'system prompt is required' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    const stream = anthropic.messages.stream({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 500,
+      system: system,
+      messages: [{ role: 'user', content: message }],
+    });
+
+    stream.on('text', (text) => {
+      res.write(`data: ${JSON.stringify({ text })}\n\n`);
+    });
+
+    stream.on('error', (err) => {
+      console.error('[ToDos Chat] stream error:', err.message);
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    });
+
+    await stream.finalMessage();
+    res.write('data: [DONE]\n\n');
+    res.end();
+  } catch (err) {
+    console.error('[ToDos Chat] error:', err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
 // ── Health Monitoring — In-memory vitals store ──────────────────────────────────
 const healthVitals = {
   latest: null,           // Most recent vitals payload from iPhone companion

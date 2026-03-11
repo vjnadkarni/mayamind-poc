@@ -54,9 +54,21 @@ struct MayaView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
 
-                    // Avatar area - TalkingHead in WKWebView
+                    // Avatar area - TalkingHead in WKWebView with home background
                     ZStack {
-                        Color(hex: "1a1a2e")
+                        // Home background image
+                        if let bgImage = loadBackgroundImage(named: "background-home") {
+                            Image(uiImage: bgImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            // Fallback gradient
+                            LinearGradient(
+                                colors: [Color(hex: "2a1a3e"), Color(hex: "1a2a3e")],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        }
 
                         if viewModel.avatarReady {
                             AvatarWebView(
@@ -198,6 +210,28 @@ struct MayaView: View {
         inputText = ""
         isInputFocused = false
         viewModel.sendMessage(message)
+    }
+
+    private func loadBackgroundImage(named name: String) -> UIImage? {
+        // Try multiple loading approaches
+        // 1. Direct path lookup
+        if let path = Bundle.main.path(forResource: name, ofType: "jpg") {
+            return UIImage(contentsOfFile: path)
+        }
+        // 2. URL-based lookup
+        if let url = Bundle.main.url(forResource: name, withExtension: "jpg") {
+            return UIImage(contentsOfFile: url.path)
+        }
+        // 3. Try in Resources subdirectory
+        if let path = Bundle.main.path(forResource: name, ofType: "jpg", inDirectory: "Resources") {
+            return UIImage(contentsOfFile: path)
+        }
+        // 4. Try with full filename
+        if let image = UIImage(named: "\(name).jpg") {
+            return image
+        }
+        print("[MayaView] Could not load background image: \(name)")
+        return nil
     }
 }
 

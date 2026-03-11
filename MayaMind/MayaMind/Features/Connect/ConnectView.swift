@@ -60,9 +60,21 @@ struct ConnectView: View {
                     .padding(.horizontal)
                     .padding(.top, 8)
 
-                    // Avatar area - TalkingHead in WKWebView
+                    // Avatar area - TalkingHead in WKWebView with beach background
                     ZStack {
-                        Color(hex: "1a1a2e")
+                        // Beach background image
+                        if let bgImage = loadBackgroundImage(named: "background-beach") {
+                            Image(uiImage: bgImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            // Fallback gradient (beach colors)
+                            LinearGradient(
+                                colors: [Color(hex: "87CEEB").opacity(0.6), Color(hex: "F0E68C").opacity(0.4)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
 
                         if viewModel.avatarReady {
                             AvatarWebView(
@@ -245,6 +257,21 @@ struct ConnectView: View {
         } else {
             return .gray
         }
+    }
+
+    private func loadBackgroundImage(named name: String) -> UIImage? {
+        // Try multiple loading approaches
+        if let path = Bundle.main.path(forResource: name, ofType: "jpg") {
+            return UIImage(contentsOfFile: path)
+        }
+        if let url = Bundle.main.url(forResource: name, withExtension: "jpg") {
+            return UIImage(contentsOfFile: url.path)
+        }
+        if let image = UIImage(named: "\(name).jpg") {
+            return image
+        }
+        print("[ConnectView] Could not load background image: \(name)")
+        return nil
     }
 }
 

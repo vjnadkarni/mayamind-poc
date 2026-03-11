@@ -19,8 +19,8 @@ struct LandingView: View {
     // Configuration
     private let slideDuration: Double = 8.0
 
-    // Image names (without extension)
-    private let imageNames = [
+    // Device-specific image sets (without extension)
+    private let iPhoneImages = [
         "ben-iwara-GCcyCln2WjI-unsplash",
         "cecep-rahmat-OEKODwdge_g-unsplash",
         "intenza-fitness-8uzJGgJ1_3w-unsplash",
@@ -32,6 +32,24 @@ struct LandingView: View {
         "pexels-runffwpu-8447272",
         "wlliam-zhou-D4M_odDQ59Q-unsplash"
     ]
+
+    private let iPadImages = [
+        "diana-light-uUMP9dXIm-o-unsplash",
+        "pexels-mikhail-nilov-6975769",
+        "kateryna-hliznitsova-PFzuNhy2dh8-unsplash",
+        "getty-images-r_ftvGYIAlw-unsplash",
+        "getty-images-fVnW1EkTJS0-unsplash",
+        "getty-images-WTKMk6A-R5A-unsplash",
+        "getty-images-hl1hcMT9A2s-unsplash",
+        "getty-images--JDI6Z8GhUk-unsplash",
+        "getty-images-LRorTPQTKt8-unsplash",
+        "getty-images-l1FT4E7pfgw-unsplash"
+    ]
+
+    // Select images based on device
+    private var imageNames: [String] {
+        UIDevice.current.userInterfaceIdiom == .pad ? iPadImages : iPhoneImages
+    }
 
     var body: some View {
         GeometryReader { geometry in

@@ -127,12 +127,21 @@ struct ExerciseView: View {
 
                     // Avatar + Scrollable chat window (expanded height)
                     HStack(alignment: .top, spacing: 10) {
-                        // Maya avatar thumbnail (larger)
+                        // Maya avatar thumbnail with gym background
                         ZStack {
-                            // Home background
-                            Image(systemName: "house.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(.gray.opacity(0.3))
+                            // Gym background
+                            if let bgImage = loadBackgroundImage(named: "background-gym") {
+                                Image(uiImage: bgImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } else {
+                                // Fallback gradient
+                                LinearGradient(
+                                    colors: [Color(hex: "1a2a1a"), Color(hex: "2a3a2a")],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            }
 
                             AvatarWebView(
                                 mood: $avatarMood,
@@ -303,6 +312,21 @@ struct ExerciseView: View {
         case "ascending": return Color.blue.opacity(0.8)
         default: return Color.gray.opacity(0.8)
         }
+    }
+
+    private func loadBackgroundImage(named name: String) -> UIImage? {
+        // Try multiple loading approaches
+        if let path = Bundle.main.path(forResource: name, ofType: "jpg") {
+            return UIImage(contentsOfFile: path)
+        }
+        if let url = Bundle.main.url(forResource: name, withExtension: "jpg") {
+            return UIImage(contentsOfFile: url.path)
+        }
+        if let image = UIImage(named: "\(name).jpg") {
+            return image
+        }
+        print("[ExerciseView] Could not load background image: \(name)")
+        return nil
     }
 }
 

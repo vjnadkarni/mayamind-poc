@@ -26,6 +26,9 @@ class CameraService: NSObject {
 
     private var startTime: CMTime?
 
+    /// Track whether session is being configured (to prevent stop during configuration)
+    private var isConfiguring = false
+
     /// Whether the camera is currently running
     private(set) var isRunning = false
 
@@ -57,7 +60,24 @@ class CameraService: NSObject {
 
     /// Setup the camera session
     func setup() throws {
+        isConfiguring = true
         captureSession.beginConfiguration()
+
+        // Use defer to ensure commitConfiguration is always called
+        defer {
+            captureSession.commitConfiguration()
+            isConfiguring = false
+        }
+
+        // Clear any existing inputs and outputs (handles re-setup case)
+        for input in captureSession.inputs {
+            captureSession.removeInput(input)
+        }
+        for output in captureSession.outputs {
+            captureSession.removeOutput(output)
+        }
+        videoOutput = nil
+
         captureSession.sessionPreset = .high
 
         // Add video input
@@ -96,8 +116,6 @@ class CameraService: NSObject {
             throw CameraError.cannotAddOutput
         }
 
-        captureSession.commitConfiguration()
-
         // Create preview layer
         let layer = AVCaptureVideoPreviewLayer(session: captureSession)
         layer.videoGravity = .resizeAspectFill
@@ -120,6 +138,18 @@ class CameraService: NSObject {
     func stop() {
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
+
+            // Wait for any ongoing configuration to complete before stopping
+            // This prevents the crash: "stopRunning may not be called between beginConfiguration and commitConfiguration"
+            if self.isConfiguring {
+                print("[CameraService] Waiting for configuration to complete before stopping")
+                // Schedule retry after brief delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.stop()
+                }
+                return
+            }
+
             self.captureSession.stopRunning()
             DispatchQueue.main.async {
                 self.isRunning = false
@@ -129,7 +159,14 @@ class CameraService: NSObject {
 
     /// Switch between front and back camera
     func switchCamera() throws {
+        isConfiguring = true
         captureSession.beginConfiguration()
+
+        // Use defer to ensure commitConfiguration is always called
+        defer {
+            captureSession.commitConfiguration()
+            isConfiguring = false
+        }
 
         // Remove existing input
         if let currentInput = captureSession.inputs.first as? AVCaptureDeviceInput {
@@ -157,8 +194,6 @@ class CameraService: NSObject {
                 connection.isVideoMirrored = false
             }
         }
-
-        captureSession.commitConfiguration()
     }
 }
 

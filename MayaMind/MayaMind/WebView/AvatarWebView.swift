@@ -42,7 +42,8 @@ struct AvatarWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.scrollView.isScrollEnabled = false
         webView.isOpaque = false
-        webView.backgroundColor = UIColor(red: 0.1, green: 0.1, blue: 0.18, alpha: 1.0)
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
 
         // Load avatar page from server
         if let url = URL(string: avatarURL) {
