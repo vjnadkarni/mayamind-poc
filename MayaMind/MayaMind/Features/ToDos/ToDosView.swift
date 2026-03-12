@@ -25,11 +25,34 @@ struct ToDosView: View {
 
                 // Main content
                 VStack(spacing: 0) {
-                    // Top bar with title, mic, and settings
+                    // Top bar with title, listening indicator, mic, and settings
                     HStack {
                         Text("To Dos")
                             .font(.system(size: 28, weight: .bold))
                             .foregroundColor(.white)
+
+                        // Compact listening indicator
+                        if viewModel.isListening {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(Color.red)
+                                    .frame(width: 10, height: 10)
+                                    .scaleEffect(viewModel.isListening ? 1.2 : 1.0)
+                                    .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: viewModel.isListening)
+
+                                Text(formatTime(viewModel.timeRemaining))
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.orange)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(12)
+                            .onTapGesture {
+                                viewModel.cancelListening()
+                            }
+                        }
+
                         Spacer()
 
                         // Mic button
@@ -73,6 +96,20 @@ struct ToDosView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
 
+                    // Transcript display when listening
+                    if viewModel.isListening && !viewModel.transcript.isEmpty {
+                        Text(viewModel.transcript)
+                            .font(.system(size: 15))
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 6)
+                    }
+
                     // Scrollable content
                     ScrollView {
                         VStack(spacing: 14) {
@@ -95,10 +132,6 @@ struct ToDosView: View {
                     }
                 }
 
-                // Voice input overlay
-                if viewModel.isListening {
-                    voiceInputOverlay
-                }
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -305,50 +338,12 @@ struct ToDosView: View {
         }
     }
 
-    // MARK: - Voice Input Overlay
+    // MARK: - Helpers
 
-    private var voiceInputOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.8)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    viewModel.cancelListening()
-                }
-
-            VStack(spacing: 24) {
-                ZStack {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 100, height: 100)
-                        .scaleEffect(viewModel.isListening ? 1.1 : 1.0)
-                        .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: viewModel.isListening)
-
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.white)
-                }
-
-                Text("Listening...")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(.white)
-
-                if !viewModel.transcript.isEmpty {
-                    Text(viewModel.transcript)
-                        .font(.system(size: 18))
-                        .foregroundColor(.white.opacity(0.8))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
-                }
-
-                Text("\(viewModel.timeRemaining)s")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(.orange)
-
-                Text("Tap anywhere to cancel")
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray)
-            }
-        }
+    private func formatTime(_ seconds: Int) -> String {
+        let mins = seconds / 60
+        let secs = seconds % 60
+        return String(format: "%d:%02d", mins, secs)
     }
 
     // MARK: - Actions
@@ -389,7 +384,8 @@ struct ToDoItemRow: View {
                         .foregroundColor(.white)
 
                     HStack(spacing: 6) {
-                        Text(item.durationString ?? item.timeString)
+                        // Time and date
+                        Text("\(item.durationString ?? item.timeString), \(item.dateString)")
                             .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.6))
 

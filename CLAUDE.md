@@ -142,8 +142,13 @@ mayamind-poc/
 │       │   │   └── ConnectView.swift
 │       │   ├── Settings/    # App settings
 │       │   │   └── SettingsView.swift
-│       │   └── ToDos/       # To Dos (placeholder)
-│       │       └── ToDosView.swift
+│       │   └── ToDos/       # To Dos: medications, appointments, tasks
+│       │       ├── ToDosView.swift          # Main UI with category sections
+│       │       ├── ToDosViewModel.swift     # Voice input, Claude parsing, TTS
+│       │       ├── ToDoModels.swift         # ToDoItem, ToDoCategory, Recurrence
+│       │       ├── ToDoStore.swift          # Persistence via UserDefaults
+│       │       ├── ToDoNotificationService.swift  # iOS local notifications
+│       │       └── AddToDoSheet.swift       # Manual add/edit form
 │       ├── iPhone/          # iPhone-specific views
 │       │   └── iPhoneTabView.swift
 │       ├── iPad/            # iPad-specific views
@@ -916,7 +921,7 @@ Real-time health data from Apple HealthKit with 24-hour trends and tap-to-expand
 | Exercise coaching | Working (MediaPipe + voice feedback) |
 | Health monitoring | Working (HealthKit + sparklines) |
 | Connect (WhatsApp) | Working (voice-driven messaging) |
-| To Dos | Placeholder |
+| To Dos | Working (voice-driven, notifications) |
 
 ### Connect Section (iOS)
 
@@ -942,6 +947,45 @@ Voice-driven WhatsApp messaging with TalkingHead avatar, matching the web dashbo
 - Contacts passed to Claude for context-aware responses
 - Incoming photo messages display inline thumbnails
 - Maya announces new messages when they arrive
+
+### To Dos Section (iOS)
+
+Voice-driven to-do management for medications, appointments, and tasks with iOS local notifications.
+
+**Architecture:**
+- `ToDosView.swift` — UI with scrollable category sections, compact listening indicator
+- `ToDosViewModel.swift` — Speech recognition, Claude parsing, TTS responses
+- `ToDoStore.swift` — UserDefaults persistence
+- `ToDoNotificationService.swift` — iOS local notifications with foreground support
+
+**Categories:**
+| Category | Reminder Timing | Icon |
+|----------|----------------|------|
+| Appointments | 1 hour before | calendar |
+| Tasks | 8 PM daily check-in | checklist |
+| Medications | 5 minutes before | pill.fill |
+
+**Voice Commands:**
+- Add items: "Remind me to take blood pressure pill at 8am every day"
+- Mark complete: "I took my vitamin"
+- List items: "What's on my schedule?" / "What are my tasks for today?"
+
+**Claude Integration:**
+- System prompt parses voice input into JSON actions: `add`, `complete`, `list`, `clarify`
+- Extracts category, title, date, time, end_time, recurrence from natural language
+- Maya speaks confirmations and reads back items
+
+**Notifications:**
+- iOS local notifications via `UNUserNotificationCenter`
+- Foreground notifications enabled via `UNUserNotificationCenterDelegate` in AppDelegate
+- Settings toggles: "Audible Jingle" (sound + banner) and "Silent Banner" (banner only)
+- Recurring items scheduled up to 7 days ahead
+
+**Key Implementation Details:**
+- 5-minute conversation timeout with auto-restart listening after Maya speaks
+- Compact listening indicator in top bar (replaces full-screen overlay)
+- Transcript display below date header while listening
+- Scrollable sections with max display limits (3/3/1 for appointments/tasks/medications)
 
 ## Production Deployment
 

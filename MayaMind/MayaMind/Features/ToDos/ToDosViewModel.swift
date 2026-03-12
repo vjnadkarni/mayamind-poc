@@ -35,15 +35,21 @@ class ToDosViewModel: ObservableObject {
     // MARK: - TTS (Direct Audio Playback)
 
     private func speak(_ text: String) {
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else {
+            // No speech, restart listening immediately
+            startListening()
+            return
+        }
 
         isSpeaking = true
         print("[ToDos] Speaking: \(text.prefix(50))...")
 
-        // Set up completion handler
+        // Set up completion handler - auto-restart listening after Maya speaks
         ttsService.onSpeechComplete = { [weak self] in
             Task { @MainActor in
                 self?.isSpeaking = false
+                // Automatically restart listening for continuous conversation
+                self?.startListening()
             }
         }
 
@@ -88,7 +94,7 @@ class ToDosViewModel: ObservableObject {
     private func beginRecording() {
         // Reset state
         transcript = ""
-        timeRemaining = 10
+        timeRemaining = 300 // 5 minutes for interactive conversation
         isListening = true
 
         // Setup audio
@@ -183,7 +189,7 @@ class ToDosViewModel: ObservableObject {
 
     private func startTimeoutTimer() {
         timeoutTimer?.invalidate()
-        timeRemaining = 10
+        timeRemaining = 300 // 5 minutes for interactive conversation
 
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -253,14 +259,21 @@ class ToDosViewModel: ObservableObject {
         For marking complete:
         {"action": "complete", "title": "partial or full title match"}
 
+        For listing/reading items (when user asks what's on their list, schedule, etc.):
+        {"action": "list", "category": "all|medication|appointment|task"}
+
         For unclear requests:
         {"action": "clarify", "message": "Your clarifying question"}
 
         Examples:
-        - "Remind me to take blood pressure pill at 8am every day" → {"action": "add", "category": "medication", "title": "Blood pressure pill", "date": "2026-03-11", "time": "08:00", "recurrence": "daily"}
-        - "I have a doctor appointment tomorrow at 2:30" → {"action": "add", "category": "appointment", "title": "Doctor appointment", "date": "2026-03-12", "time": "14:30", "end_time": "15:30", "recurrence": "none"}
-        - "Add pick up groceries to my tasks" → {"action": "add", "category": "task", "title": "Pick up groceries", "date": "2026-03-11", "time": "12:00", "recurrence": "none"}
+        - "Remind me to take blood pressure pill at 8am every day" → {"action": "add", "category": "medication", "title": "Blood pressure pill", "date": "2026-03-12", "time": "08:00", "recurrence": "daily"}
+        - "I have a doctor appointment tomorrow at 2:30" → {"action": "add", "category": "appointment", "title": "Doctor appointment", "date": "2026-03-13", "time": "14:30", "end_time": "15:30", "recurrence": "none"}
+        - "Add pick up groceries to my tasks" → {"action": "add", "category": "task", "title": "Pick up groceries", "date": "2026-03-12", "time": "12:00", "recurrence": "none"}
         - "I took my vitamin" → {"action": "complete", "title": "vitamin"}
+        - "What are my tasks for today?" → {"action": "list", "category": "task"}
+        - "What's on my schedule?" → {"action": "list", "category": "all"}
+        - "Read my appointments" → {"action": "list", "category": "appointment"}
+        - "What medications do I need to take?" → {"action": "list", "category": "medication"}
         """
 
         do {
@@ -322,6 +335,8 @@ class ToDosViewModel: ObservableObject {
             await handleAddAction(json)
         case "complete":
             handleCompleteAction(json)
+        case "list":
+            handleListAction(json)
         case "clarify":
             if let message = json["message"] as? String {
                 print("[ToDos] Clarification needed: \(message)")
@@ -435,6 +450,74 @@ class ToDosViewModel: ObservableObject {
         } else {
             speak("I couldn't find that item. Could you try again?")
         }
+    }
+
+    private func handleListAction(_ json: [String: Any]) {
+        let categoryStr = json["category"] as? String ?? "all"
+
+        var response = ""
+
+        if categoryStr == "all" || categoryStr == "appointment" {
+            let appointments = store.items(for: .appointment).prefix(3)
+            if appointments.isEmpty {
+                response += "You have no upcoming appointments. "
+            } else {
+                response += "Your upcoming appointments: "
+                for (index, item) in appointments.enumerated() {
+                    let timeDisplay = formatTimeForSpeech(item.startTime)
+                    let dateDisplay = formatDateForSpeech(item.scheduledDate)
+                    response += "\(item.title) at \(timeDisplay) on \(dateDisplay)"
+                    if index < appointments.count - 1 {
+                        response += ". "
+                    }
+                }
+                response += ". "
+            }
+        }
+
+        if categoryStr == "all" || categoryStr == "task" {
+            let tasks = store.items(for: .task).prefix(3)
+            if tasks.isEmpty {
+                response += "You have no tasks scheduled. "
+            } else {
+                response += "Your upcoming tasks: "
+                for (index, item) in tasks.enumerated() {
+                    let dateDisplay = formatDateForSpeech(item.scheduledDate)
+                    response += "\(item.title) on \(dateDisplay)"
+                    if index < tasks.count - 1 {
+                        response += ". "
+                    }
+                }
+                response += ". "
+            }
+        }
+
+        if categoryStr == "all" || categoryStr == "medication" {
+            let medications = store.items(for: .medication).prefix(3)
+            if medications.isEmpty {
+                response += "You have no medications scheduled. "
+            } else {
+                response += "Your medications: "
+                for (index, item) in medications.enumerated() {
+                    let timeDisplay = formatTimeForSpeech(item.startTime)
+                    response += "\(item.title) at \(timeDisplay)"
+                    if item.recurrence.pattern != .none {
+                        response += ", \(item.recurrence.pattern.displayName.lowercased())"
+                    }
+                    if index < medications.count - 1 {
+                        response += ". "
+                    }
+                }
+                response += ". "
+            }
+        }
+
+        if response.isEmpty {
+            response = "I couldn't find any items to read."
+        }
+
+        print("[ToDos] Reading items: \(response)")
+        speak(response)
     }
 
     // MARK: - Helpers

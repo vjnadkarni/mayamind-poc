@@ -179,10 +179,10 @@ struct ToDoItem: Identifiable, Codable, Equatable {
         return formatter.string(from: startTime)
     }
 
-    // Formatted date string
+    // Formatted date string (e.g., "Mar 11, 2026")
     var dateString: String {
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
+        formatter.dateFormat = "MMM d, yyyy"
         return formatter.string(from: scheduledDate)
     }
 

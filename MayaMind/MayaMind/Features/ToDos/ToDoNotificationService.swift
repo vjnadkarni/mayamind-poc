@@ -45,6 +45,9 @@ class ToDoNotificationService {
         // Cancel any existing notifications for this item
         cancelNotifications(for: item)
 
+        // Check if notifications are enabled in settings
+        guard NotificationSettings.shared.notificationsEnabled else { return [] }
+
         // Don't schedule for completed items
         guard !item.isCompleted else { return [] }
 
@@ -65,7 +68,11 @@ class ToDoNotificationService {
 
         // Create notification content
         let content = UNMutableNotificationContent()
-        content.sound = .default
+
+        // Set sound based on settings
+        if NotificationSettings.shared.soundEnabled {
+            content.sound = .default
+        }
 
         switch item.category {
         case .medication:
@@ -152,7 +159,11 @@ class ToDoNotificationService {
 
             // Create notification
             let content = UNMutableNotificationContent()
-            content.sound = .default
+
+            // Set sound based on settings
+            if NotificationSettings.shared.soundEnabled {
+                content.sound = .default
+            }
 
             switch item.category {
             case .medication:
@@ -190,6 +201,9 @@ class ToDoNotificationService {
         // Cancel existing
         notificationCenter.removePendingNotificationRequests(withIdentifiers: [notificationId])
 
+        // Check if notifications are enabled in settings
+        guard NotificationSettings.shared.notificationsEnabled else { return }
+
         // Schedule for 8 PM today (or tomorrow if past 8 PM)
         var dateComponents = DateComponents()
         dateComponents.hour = 20
@@ -198,7 +212,11 @@ class ToDoNotificationService {
         let content = UNMutableNotificationContent()
         content.title = "Daily Check-in"
         content.body = "Let's review your day together"
-        content.sound = .default
+
+        // Set sound based on settings
+        if NotificationSettings.shared.soundEnabled {
+            content.sound = .default
+        }
 
         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
 

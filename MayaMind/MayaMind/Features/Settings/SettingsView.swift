@@ -132,6 +132,25 @@ struct SettingsView: View {
                             }
                         }
 
+                        // To Dos Notifications
+                        SettingsSection(title: "To Dos Notifications") {
+                            SettingsToggle(
+                                icon: "bell.badge",
+                                title: "Audible Jingle",
+                                subtitle: "Plays a chime and displays notification banner",
+                                isOn: $viewModel.notificationJingleEnabled
+                            )
+
+                            SettingsToggle(
+                                icon: "bell",
+                                title: "Silent Banner",
+                                subtitle: "Display notification without sound",
+                                isOn: $viewModel.notificationBannerEnabled
+                            )
+                            .disabled(viewModel.notificationJingleEnabled)
+                            .opacity(viewModel.notificationJingleEnabled ? 0.5 : 1.0)
+                        }
+
                         // Cloud sync
                         SettingsSection(title: "Cloud Sync") {
                             SettingsToggle(
@@ -311,6 +330,28 @@ class SettingsViewModel: ObservableObject {
     @Published var iCloudSyncEnabled = true
     @Published var familySharingEnabled = false
 
+    // To Dos Notifications
+    @Published var notificationJingleEnabled: Bool {
+        didSet {
+            NotificationSettings.shared.jingleEnabled = notificationJingleEnabled
+            // If jingle is enabled, it includes banner, so disable separate banner toggle
+            if notificationJingleEnabled {
+                notificationBannerEnabled = false
+            }
+        }
+    }
+    @Published var notificationBannerEnabled: Bool {
+        didSet {
+            NotificationSettings.shared.bannerEnabled = notificationBannerEnabled
+        }
+    }
+
+    init() {
+        // Load notification settings from UserDefaults
+        self.notificationJingleEnabled = NotificationSettings.shared.jingleEnabled
+        self.notificationBannerEnabled = NotificationSettings.shared.bannerEnabled
+    }
+
     func connectWithings() {
         // TODO: Implement Withings OAuth flow
     }
@@ -322,6 +363,37 @@ class SettingsViewModel: ObservableObject {
     func forgetEverything() {
         // TODO: Clear all stored data
     }
+}
+
+// MARK: - Notification Settings
+
+class NotificationSettings {
+    static let shared = NotificationSettings()
+
+    private let jingleKey = "todo_notification_jingle"
+    private let bannerKey = "todo_notification_banner"
+
+    var jingleEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: jingleKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: jingleKey) }
+    }
+
+    var bannerEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: bannerKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: bannerKey) }
+    }
+
+    /// Returns true if any notification type is enabled
+    var notificationsEnabled: Bool {
+        jingleEnabled || bannerEnabled
+    }
+
+    /// Returns true if sound should be included
+    var soundEnabled: Bool {
+        jingleEnabled
+    }
+
+    private init() {}
 }
 
 #Preview {
