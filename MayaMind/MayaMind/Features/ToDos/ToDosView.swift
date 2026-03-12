@@ -2,7 +2,7 @@
 //  ToDosView.swift
 //  MayaMind
 //
-//  To Dos screen: Medications, Appointments, Tasks with Maya voice assistant
+//  To Dos screen: Appointments, Tasks, Medications with voice input
 //
 
 import SwiftUI
@@ -17,11 +17,6 @@ struct ToDosView: View {
     @State private var editingItem: ToDoItem?
     @State private var showCompletedSection = false
 
-    // Avatar state
-    @State private var avatarMood: String = "neutral"
-    @State private var avatarIsSpeaking: Bool = false
-    @State private var isAvatarReady: Bool = false
-
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -30,12 +25,23 @@ struct ToDosView: View {
 
                 // Main content
                 VStack(spacing: 0) {
-                    // Top bar with title and settings
+                    // Top bar with title, mic, and settings
                     HStack {
                         Text("To Dos")
                             .font(.system(size: 28, weight: .bold))
                             .foregroundColor(.white)
                         Spacer()
+
+                        // Mic button
+                        Button(action: { viewModel.startListening() }) {
+                            Image(systemName: viewModel.isListening ? "mic.fill" : "mic")
+                                .font(.system(size: 20))
+                                .foregroundColor(viewModel.isListening ? .red : .orange)
+                                .padding(10)
+                                .background(Color.white.opacity(0.15))
+                                .cornerRadius(8)
+                        }
+                        .disabled(viewModel.isListening || viewModel.isSpeaking)
 
                         Button(action: { showSettings = true }) {
                             Image(systemName: "gearshape.fill")
@@ -65,86 +71,28 @@ struct ToDosView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 8)
 
                     // Scrollable content
                     ScrollView {
-                        VStack(spacing: 20) {
-                            // Medications section
-                            makeCategorySection(category: .medication)
+                        VStack(spacing: 14) {
+                            // Appointments section (max 3 visible)
+                            makeCategorySection(category: .appointment, maxDisplay: 3)
 
-                            // Appointments section
-                            makeCategorySection(category: .appointment)
+                            // Tasks section (max 3 visible)
+                            makeCategorySection(category: .task, maxDisplay: 3)
 
-                            // Tasks section
-                            makeCategorySection(category: .task)
+                            // Medications section (max 1 visible)
+                            makeCategorySection(category: .medication, maxDisplay: 1)
 
                             // Completed section
                             makeCompletedSection()
 
-                            // Bottom padding for Maya thumbnail
-                            Spacer().frame(height: 100)
+                            // Bottom padding
+                            Spacer().frame(height: 20)
                         }
                         .padding(.horizontal, 16)
                     }
-                }
-
-                // Maya thumbnail + mic button (bottom left)
-                VStack {
-                    Spacer()
-                    HStack(alignment: .bottom, spacing: 12) {
-                        // Maya avatar with background
-                        ZStack {
-                            // Background image (clipped to rounded rect)
-                            if let bgImage = loadBackgroundImage(named: "background-home") {
-                                Image(uiImage: bgImage)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 120, height: 140)
-                                    .clipped()
-                                    .cornerRadius(16)
-                                    .overlay(Color.black.opacity(0.3))
-                            }
-
-                            // Avatar WebView
-                            AvatarWebView(
-                                mood: $avatarMood,
-                                isSpeaking: $avatarIsSpeaking,
-                                onReady: {
-                                    isAvatarReady = true
-                                    print("[ToDos] Avatar ready")
-                                },
-                                onSpeakingEnd: {
-                                    avatarIsSpeaking = false
-                                    viewModel.isSpeaking = false
-                                },
-                                audioToSpeak: viewModel.avatarAudioData
-                            )
-                            .frame(width: 120, height: 140)
-                            .cornerRadius(16)
-                        }
-                        .frame(width: 120, height: 140)
-                        .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 4)
-
-                        // Mic button
-                        Button(action: { viewModel.startListening() }) {
-                            ZStack {
-                                Circle()
-                                    .fill(viewModel.isListening ? Color.red : Color.orange)
-                                    .frame(width: 56, height: 56)
-                                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-
-                                Image(systemName: viewModel.isListening ? "mic.fill" : "mic")
-                                    .font(.system(size: 24))
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        .disabled(viewModel.isListening || viewModel.isSpeaking)
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
                 }
 
                 // Voice input overlay
@@ -183,13 +131,6 @@ struct ToDosView: View {
         .ignoresSafeArea()
     }
 
-    private func loadBackgroundImage(named name: String) -> UIImage? {
-        if let path = Bundle.main.path(forResource: name, ofType: "jpg") {
-            return UIImage(contentsOfFile: path)
-        }
-        return UIImage(named: name) ?? UIImage(named: "\(name).jpg")
-    }
-
     private var formattedDate: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEEE, MMMM d"
@@ -198,41 +139,51 @@ struct ToDosView: View {
 
     // MARK: - Category Section
 
+    private let itemRowHeight: CGFloat = 48 // Approximate height per item row
+
     @ViewBuilder
-    private func makeCategorySection(category: ToDoCategory) -> some View {
+    private func makeCategorySection(category: ToDoCategory, maxDisplay: Int) -> some View {
         let color = colorFor(category)
         let items = store.items(for: category)
-        let displayItems = Array(items.prefix(3))
+        let needsScroll = items.count > maxDisplay
+        let maxHeight = CGFloat(maxDisplay) * itemRowHeight + 4 // +4 for padding
 
-        VStack(alignment: .leading, spacing: 10) {
-            // Header row with icon, title, and + button
+        VStack(alignment: .leading, spacing: 6) {
+            // Header row with icon, title, count badge, and + button
             HStack {
                 Image(systemName: iconFor(category))
                     .foregroundColor(color)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
 
                 Text(category.displayName.uppercased())
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundColor(color)
+
+                // Show count badge if more items than displayed
+                if needsScroll {
+                    Text("(\(items.count))")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
 
                 Spacer()
 
-                // Add button - larger and more visible
+                // Add button
                 Button(action: {
                     print("[ToDos] Add button tapped for \(category.displayName)")
                     addingCategory = category
                 }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: 12, weight: .bold))
                         Text("Add")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                     }
                     .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
                     .background(color)
-                    .cornerRadius(20)
+                    .cornerRadius(14)
                 }
             }
 
@@ -241,43 +192,48 @@ struct ToDosView: View {
                 HStack {
                     Spacer()
                     Text("No \(category.displayName.lowercased()) scheduled")
-                        .font(.system(size: 15))
+                        .font(.system(size: 14))
                         .foregroundColor(.white.opacity(0.5))
                     Spacer()
                 }
-                .padding(.vertical, 24)
+                .padding(.vertical, 16)
                 .background(Color.white.opacity(0.08))
-                .cornerRadius(12)
+                .cornerRadius(10)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(displayItems) { item in
-                        ToDoItemRow(
-                            item: item,
-                            color: color,
-                            onToggle: { toggleItem(item) },
-                            onTap: { editingItem = item }
-                        )
-
-                        if item.id != displayItems.last?.id {
-                            Divider()
-                                .background(Color.white.opacity(0.1))
+                // Scrollable container if needed
+                Group {
+                    if needsScroll {
+                        ScrollView {
+                            itemsList(items: items, color: color)
                         }
-                    }
-
-                    if items.count > 3 {
-                        Divider()
-                            .background(Color.white.opacity(0.1))
-
-                        Text("+ \(items.count - 3) more")
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray)
-                            .padding(.vertical, 12)
+                        .frame(maxHeight: maxHeight)
+                    } else {
+                        itemsList(items: items, color: color)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
                 .background(Color.white.opacity(0.08))
-                .cornerRadius(12)
+                .cornerRadius(10)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func itemsList(items: [ToDoItem], color: Color) -> some View {
+        VStack(spacing: 0) {
+            ForEach(items) { item in
+                ToDoItemRow(
+                    item: item,
+                    color: color,
+                    onToggle: { toggleItem(item) },
+                    onTap: { editingItem = item }
+                )
+
+                if item.id != items.last?.id {
+                    Divider()
+                        .background(Color.white.opacity(0.1))
+                }
             }
         }
     }
@@ -304,26 +260,26 @@ struct ToDosView: View {
     private func makeCompletedSection() -> some View {
         let completed = store.completedItems()
 
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Button(action: { withAnimation { showCompletedSection.toggle() } }) {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
-                        .font(.system(size: 18))
+                        .font(.system(size: 16))
 
                     Text("COMPLETED")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.green)
 
                     Text("(\(completed.count))")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .foregroundColor(.gray)
 
                     Spacer()
 
                     Image(systemName: showCompletedSection ? "chevron.up" : "chevron.down")
                         .foregroundColor(.gray)
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                 }
             }
             .buttonStyle(PlainButtonStyle())
@@ -341,10 +297,10 @@ struct ToDosView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
                 .background(Color.white.opacity(0.05))
-                .cornerRadius(12)
+                .cornerRadius(10)
             }
         }
     }
@@ -416,33 +372,33 @@ struct ToDoItemRow: View {
     let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             // Checkbox circle
             Button(action: onToggle) {
                 Circle()
-                    .stroke(color, lineWidth: 2.5)
-                    .frame(width: 28, height: 28)
+                    .stroke(color, lineWidth: 2)
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(PlainButtonStyle())
 
             // Content
             Button(action: onTap) {
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.white)
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Text(item.durationString ?? item.timeString)
-                            .font(.system(size: 14))
+                            .font(.system(size: 13))
                             .foregroundColor(.white.opacity(0.6))
 
                         if item.recurrence.pattern != .none {
-                            HStack(spacing: 3) {
+                            HStack(spacing: 2) {
                                 Image(systemName: "repeat")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 10))
                                 Text(item.recurrence.pattern.displayName)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 11))
                             }
                             .foregroundColor(color.opacity(0.8))
                         }
@@ -452,7 +408,7 @@ struct ToDoItemRow: View {
             }
             .buttonStyle(PlainButtonStyle())
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
     }
 }
 

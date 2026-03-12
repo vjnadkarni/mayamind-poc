@@ -2,7 +2,7 @@
 //  ToDosViewModel.swift
 //  MayaMind
 //
-//  ViewModel for To Dos: voice input, speech recognition, Claude parsing
+//  ViewModel for To Dos: voice input, speech recognition, Claude parsing, TTS
 //
 
 import Foundation
@@ -16,9 +16,6 @@ class ToDosViewModel: ObservableObject {
     @Published var transcript = ""
     @Published var timeRemaining = 10
     @Published var isSpeaking = false
-
-    // Avatar audio for lip sync
-    @Published var avatarAudioData: AvatarAudioData?
 
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -35,7 +32,7 @@ class ToDosViewModel: ObservableObject {
         speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     }
 
-    // MARK: - TTS with Avatar Lip Sync
+    // MARK: - TTS (Direct Audio Playback)
 
     private func speak(_ text: String) {
         guard !text.isEmpty else { return }
@@ -43,36 +40,15 @@ class ToDosViewModel: ObservableObject {
         isSpeaking = true
         print("[ToDos] Speaking: \(text.prefix(50))...")
 
-        Task {
-            do {
-                let response = try await ttsService.fetchTTSResponse(for: text)
-
-                // Create avatar audio data for lip sync
-                let audioData = AvatarAudioData(
-                    audioData: response.audioData,
-                    words: response.words,
-                    wordTimes: response.wordTimes,
-                    wordDurations: response.wordDurations
-                )
-
-                await MainActor.run {
-                    self.avatarAudioData = audioData
-                }
-
-                // Wait for approximate audio duration then mark as done
-                let duration = Double(response.audioData.count) / 24000.0 // Rough estimate
-                try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000) + 500_000_000)
-
-                await MainActor.run {
-                    self.isSpeaking = false
-                }
-            } catch {
-                print("[ToDos] TTS error: \(error)")
-                await MainActor.run {
-                    self.isSpeaking = false
-                }
+        // Set up completion handler
+        ttsService.onSpeechComplete = { [weak self] in
+            Task { @MainActor in
+                self?.isSpeaking = false
             }
         }
+
+        // Play audio directly through TTSService
+        ttsService.speak(text)
     }
 
     // MARK: - Notification Permission
