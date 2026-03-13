@@ -31,32 +31,27 @@ struct ContentView: View {
                             .progressViewStyle(CircularProgressViewStyle(tint: .orange))
                     }
                 }
+            } else if showLanding {
+                // Always show landing screen first for all users
+                LandingView(onEnter: {
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        showLanding = false
+                    }
+                })
+                .transition(.opacity)
             } else if !authService.isAuthenticated {
                 // Not authenticated - show login
                 LoginView()
+                    .transition(.opacity)
             } else {
-                // Authenticated - show main app
-                ZStack {
-                    // Main app content
-                    Group {
-                        if UIDevice.current.userInterfaceIdiom == .pad {
-                            // iPad: Landscape, exercise-focused layout
-                            iPadMainView()
-                        } else {
-                            // iPhone: Portrait, tab-based navigation
-                            iPhoneTabView()
-                        }
-                    }
-
-                    // Landing page overlay (only after login)
-                    if showLanding {
-                        LandingView(onEnter: {
-                            withAnimation(.easeOut(duration: 0.5)) {
-                                showLanding = false
-                            }
-                        })
-                        .transition(.opacity)
-                        .zIndex(1)
+                // Authenticated - go to main app
+                Group {
+                    if UIDevice.current.userInterfaceIdiom == .pad {
+                        // iPad: Landscape, exercise-focused layout
+                        iPadMainView()
+                    } else {
+                        // iPhone: Portrait, tab-based navigation
+                        iPhoneTabView()
                     }
                 }
             }

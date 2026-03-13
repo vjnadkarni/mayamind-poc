@@ -80,26 +80,23 @@ struct LandingView: View {
                     .padding(.trailing, 24)
 
                     Spacer()
-                        .frame(height: geometry.size.height * 0.15)
+                        .frame(height: geometry.size.height * 0.08)
 
-                    // Tap to enter hint
-                    VStack(spacing: 8) {
-                        Image(systemName: "hand.tap.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.white.opacity(0.7))
-
-                        Text("Tap anywhere to begin")
-                            .font(.system(size: 16))
-                            .foregroundColor(.white.opacity(0.7))
+                    // Start button
+                    Button(action: {
+                        enter()
+                    }) {
+                        Text("Start")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 160, height: 50)
+                            .background(Color.orange)
+                            .cornerRadius(25)
                     }
-                    .padding(.bottom, 40)
+                    .padding(.bottom, 60)
                 }
             }
             .ignoresSafeArea()
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            enter()
         }
         .onAppear {
             startSlideshow()
