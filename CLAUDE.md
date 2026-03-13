@@ -119,8 +119,12 @@ mayamind-poc/
 ├── MayaMind/                # Native iOS app (iPhone + iPad Universal)
 │   └── MayaMind/
 │       ├── App/             # SwiftUI app entry point
-│       │   └── MayaMindApp.swift      # App + AppState + AppSection enum
+│       │   ├── MayaMindApp.swift      # App + AppState + DeepLinkHandler
+│       │   └── ContentView.swift      # Auth gate + main navigation
 │       ├── Core/            # Shared services
+│       │   ├── Auth/        # Authentication
+│       │   │   ├── AuthService.swift         # Supabase client wrapper
+│       │   │   └── AuthConfig.swift          # Supabase URL and anon key
 │       │   ├── Services/
 │       │   │   ├── ClaudeAPIService.swift    # Claude API with SSE streaming
 │       │   │   ├── SpeechRecognitionService.swift  # Apple Speech framework
@@ -131,14 +135,18 @@ mayamind-poc/
 │       │   └── ExerciseDetection/            # Exercise detectors
 │       │       └── ExerciseDetectors.swift   # Squat, Lunge, BicepsCurl, Pushup
 │       ├── Features/        # Feature modules
+│       │   ├── Auth/        # Authentication screens
+│       │   │   ├── LoginView.swift           # Sign in / sign up form
+│       │   │   ├── ForgotPasswordView.swift  # Request reset email
+│       │   │   └── PasswordResetView.swift   # Set new password
 │       │   ├── Maya/        # Maya conversation
 │       │   │   └── MayaView.swift
 │       │   ├── Exercise/    # Exercise coaching
 │       │   │   ├── ExerciseView.swift        # Camera + pose detection + voice
 │       │   │   └── CameraPreviewView.swift   # AVCaptureVideoPreviewLayer wrapper
-│       │   ├── Health/      # Health monitoring (placeholder)
+│       │   ├── Health/      # Health monitoring
 │       │   │   └── HealthView.swift
-│       │   ├── Connect/     # WhatsApp messaging (placeholder)
+│       │   ├── Connect/     # WhatsApp messaging
 │       │   │   └── ConnectView.swift
 │       │   ├── Settings/    # App settings
 │       │   │   └── SettingsView.swift
@@ -922,6 +930,68 @@ Real-time health data from Apple HealthKit with 24-hour trends and tap-to-expand
 | Health monitoring | Working (HealthKit + sparklines) |
 | Connect (WhatsApp) | Working (voice-driven messaging) |
 | To Dos | Working (voice-driven, notifications) |
+| Authentication | Working (Supabase Auth + password reset) |
+
+### Authentication (Supabase)
+
+Native authentication using Supabase Auth with email/password login, signup, and password reset.
+
+**Architecture:**
+- `Core/Auth/AuthService.swift` — Supabase client wrapper, session management
+- `Core/Auth/AuthConfig.swift` — Supabase URL and anon key configuration
+- `Features/Auth/LoginView.swift` — Sign in / sign up form
+- `Features/Auth/ForgotPasswordView.swift` — Request password reset email
+- `Features/Auth/PasswordResetView.swift` — Set new password form
+
+**Password Reset Flow:**
+1. User taps "Forgot Password" → enters email → Supabase sends reset email
+2. Email contains link to `https://companion.mayamind.ai/app-reset#access_token=xxx&type=recovery`
+3. Server `/app-reset` route serves redirect page with "Open MayaMind App" button
+4. Button triggers `mayamind://auth/callback#...` deep link
+5. App's `DeepLinkHandler` parses tokens, sets Supabase session
+6. `PasswordResetView` sheet opens for user to enter new password
+
+**Key Implementation Details:**
+- Uses implicit flow (`flowType: .implicit`) — PKCE requires code verifier which doesn't persist across app launches
+- Custom URL scheme `mayamind://` registered in Info.plist (`CFBundleURLSchemes`)
+- Server redirect page needed because email clients can't directly open custom URL schemes
+- `DeepLinkHandler` in `MayaMindApp.swift` handles `onOpenURL` callback
+- After password update, user is signed out and redirected to login
+
+**Dependencies (via Swift Package Manager):**
+- `Supabase` — Supabase Swift SDK
+
+### SwiftUI Layout Pattern
+
+**Background Images with `.fill`:**
+When using images that should fill a container without affecting layout, use the `.background()` modifier instead of placing the image inside a ZStack:
+
+```swift
+// CORRECT: Image constrained to view bounds
+ZStack {
+    // Content (avatar, etc.)
+}
+.frame(height: 200)
+.background(
+    Image(uiImage: bgImage)
+        .resizable()
+        .scaledToFill()
+)
+.clipped()
+.cornerRadius(16)
+
+// WRONG: Image expands ZStack beyond screen bounds
+ZStack {
+    Image(uiImage: bgImage)
+        .resizable()
+        .aspectRatio(contentMode: .fill)
+    // Content
+}
+.frame(height: 200)
+.clipped()  // Too late, ZStack already expanded
+```
+
+The `.background()` modifier constrains the background to the view's frame. Combined with `.clipped()`, any overflow from `.scaledToFill()` is properly clipped.
 
 ### Connect Section (iOS)
 

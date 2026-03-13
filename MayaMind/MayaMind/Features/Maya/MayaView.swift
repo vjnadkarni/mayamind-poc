@@ -17,178 +17,180 @@ struct MayaView: View {
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                // Background
-                Color(hex: "0a0a10")
-                    .ignoresSafeArea()
+        ZStack {
+            Color(hex: "0a0a10")
+                .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    // Top bar
-                    HStack {
-                        Text("Maya")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
-                        Spacer()
+            VStack(spacing: 0) {
+                // Top bar
+                HStack {
+                    Text("Maya")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(.white)
+                    Spacer()
 
-                        // Mute button
-                        Button(action: { appState.isMuted.toggle() }) {
-                            Image(systemName: appState.isMuted ? "mic.slash.fill" : "mic.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(appState.isMuted ? .red : .green)
-                                .padding(10)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(8)
-                        }
+                    // Mute button
+                    Button(action: { appState.isMuted.toggle() }) {
+                        Image(systemName: appState.isMuted ? "mic.slash.fill" : "mic.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(appState.isMuted ? .red : .green)
+                            .padding(10)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
+                    }
 
-                        // Settings button
-                        Button(action: { showSettings = true }) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(.orange)
-                                .padding(10)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(8)
+                    // Settings button
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.orange)
+                            .padding(10)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(8)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                // Avatar area - TalkingHead in WKWebView with home background
+                ZStack {
+                    if viewModel.avatarReady {
+                        AvatarWebView(
+                            mood: $viewModel.currentMood,
+                            isSpeaking: $viewModel.avatarSpeaking,
+                            onReady: {
+                                print("[MayaView] Avatar ready")
+                            },
+                            onSpeakingEnd: {
+                                viewModel.onAvatarSpeakingEnd()
+                            },
+                            audioToSpeak: viewModel.pendingAvatarAudio
+                        )
+                    } else {
+                        // Loading placeholder
+                        VStack {
+                            ProgressView()
+                                .scaleEffect(1.5)
+                                .tint(.orange)
+                            Text("Loading Maya...")
+                                .foregroundColor(.gray)
+                                .padding(.top, 12)
                         }
                     }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
-                    // Avatar area - TalkingHead in WKWebView with home background
-                    ZStack {
-                        // Home background image
+                }
+                .frame(height: UIScreen.main.bounds.height * 0.30)
+                .frame(maxWidth: .infinity)
+                .background(
+                    Group {
                         if let bgImage = loadBackgroundImage(named: "background-home") {
                             Image(uiImage: bgImage)
                                 .resizable()
-                                .aspectRatio(contentMode: .fill)
+                                .scaledToFill()
                         } else {
-                            // Fallback gradient
                             LinearGradient(
                                 colors: [Color(hex: "2a1a3e"), Color(hex: "1a2a3e")],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         }
+                    }
+                )
+                .clipped()
+                .cornerRadius(16)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
 
-                        if viewModel.avatarReady {
-                            AvatarWebView(
-                                mood: $viewModel.currentMood,
-                                isSpeaking: $viewModel.avatarSpeaking,
-                                onReady: {
-                                    print("[MayaView] Avatar ready")
-                                },
-                                onSpeakingEnd: {
-                                    viewModel.onAvatarSpeakingEnd()
-                                },
-                                audioToSpeak: viewModel.pendingAvatarAudio
-                            )
-                        } else {
-                            // Loading placeholder
-                            VStack {
-                                ProgressView()
-                                    .scaleEffect(1.5)
-                                    .tint(.orange)
-                                Text("Loading Maya...")
-                                    .foregroundColor(.gray)
-                                    .padding(.top, 12)
+                // Transcript area
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(viewModel.messages) { message in
+                                ChatBubble(message: message)
+                                    .id(message.id)
+                            }
+                        }
+                        .padding()
+                    }
+                    .onChange(of: viewModel.messages.count) { _, _ in
+                        if let lastMessage = viewModel.messages.last {
+                            withAnimation {
+                                scrollProxy.scrollTo(lastMessage.id, anchor: .bottom)
                             }
                         }
                     }
-                    .frame(height: geometry.size.height * 0.35)
-                    .cornerRadius(16)
-                    .padding(.horizontal)
-                    .padding(.top, 16)
-
-                    // Transcript area
-                    ScrollViewReader { scrollProxy in
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 12) {
-                                ForEach(viewModel.messages) { message in
-                                    ChatBubble(message: message)
-                                        .id(message.id)
-                                }
-                            }
-                            .padding()
-                        }
-                        .onChange(of: viewModel.messages.count) { _, _ in
-                            if let lastMessage = viewModel.messages.last {
-                                withAnimation {
-                                    scrollProxy.scrollTo(lastMessage.id, anchor: .bottom)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxHeight: .infinity)
-                    .background(Color(hex: "0f0f1a"))
-                    .cornerRadius(16)
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-
-                    // Input area
-                    HStack(spacing: 12) {
-                        TextField("Type a message...", text: $inputText)
-                            .textFieldStyle(.plain)
-                            .padding(12)
-                            .background(Color(hex: "1a1a2e"))
-                            .cornerRadius(20)
-                            .foregroundColor(.white)
-                            .focused($isInputFocused)
-                            .onSubmit {
-                                sendMessage()
-                            }
-
-                        // Microphone button for voice input
-                        Button(action: { viewModel.toggleListening() }) {
-                            ZStack {
-                                if viewModel.isListening {
-                                    Circle()
-                                        .fill(Color.green.opacity(0.3))
-                                        .frame(width: 44, height: 44)
-                                }
-                                Image(systemName: viewModel.isListening ? "waveform.circle.fill" : "mic.circle.fill")
-                                    .font(.system(size: 32))
-                                    .foregroundColor(viewModel.isListening ? .green : .orange)
-                            }
-                        }
-                        .disabled(viewModel.isLoading || appState.isMuted)
-
-                        Button(action: sendMessage) {
-                            Image(systemName: viewModel.isLoading ? "hourglass" : "arrow.up.circle.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(inputText.isEmpty || viewModel.isLoading ? .gray : .orange)
-                        }
-                        .disabled(inputText.isEmpty || viewModel.isLoading)
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 12)
-
-                    // Status bar
-                    HStack {
-                        Circle()
-                            .fill(statusColor)
-                            .frame(width: 8, height: 8)
-                        Text(viewModel.statusText)
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray)
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(hex: "0f0f1a"))
+                .cornerRadius(16)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+
+                // Input area
+                HStack(spacing: 12) {
+                    TextField("Type a message...", text: $inputText)
+                        .textFieldStyle(.plain)
+                        .padding(12)
+                        .background(Color(hex: "1a1a2e"))
+                        .cornerRadius(20)
+                        .foregroundColor(.white)
+                        .focused($isInputFocused)
+                        .onSubmit {
+                            sendMessage()
+                        }
+
+                    // Microphone button for voice input
+                    Button(action: { viewModel.toggleListening() }) {
+                        ZStack {
+                            if viewModel.isListening {
+                                Circle()
+                                    .fill(Color.green.opacity(0.3))
+                                    .frame(width: 44, height: 44)
+                            }
+                            Image(systemName: viewModel.isListening ? "waveform.circle.fill" : "mic.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(viewModel.isListening ? .green : .orange)
+                        }
+                        .frame(width: 44, height: 44)
+                    }
+                    .disabled(viewModel.isLoading || appState.isMuted)
+
+                    Button(action: sendMessage) {
+                        Image(systemName: viewModel.isLoading ? "hourglass" : "arrow.up.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(inputText.isEmpty || viewModel.isLoading ? .gray : .orange)
+                    }
+                    .frame(width: 44, height: 44)
+                    .disabled(inputText.isEmpty || viewModel.isLoading)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                // Status bar
+                HStack {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                    Text(viewModel.statusText)
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             }
-            .onTapGesture {
-                isInputFocused = false
-            }
-            .onAppear {
-                viewModel.requestSpeechAuthorization()
-            }
-            .onDisappear {
-                viewModel.cleanup()
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-                    .environmentObject(appState)
-            }
+        }
+        .onTapGesture {
+            isInputFocused = false
+        }
+        .onAppear {
+            viewModel.requestSpeechAuthorization()
+        }
+        .onDisappear {
+            viewModel.cleanup()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .environmentObject(appState)
         }
     }
 

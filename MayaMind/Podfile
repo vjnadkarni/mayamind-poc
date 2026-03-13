@@ -5,6 +5,9 @@ target 'MayaMind' do
 
   # MediaPipe Pose Landmarker
   pod 'MediaPipeTasksVision', '~> 0.10.14'
+
+  # Note: Supabase is added via Swift Package Manager (SPM), not CocoaPods
+  # Add in Xcode: File > Add Package Dependencies > https://github.com/supabase/supabase-swift
 end
 
 post_install do |installer|

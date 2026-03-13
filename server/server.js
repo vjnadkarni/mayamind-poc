@@ -47,6 +47,316 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // Twilio webhooks use form-encoded
 
+// Supabase auth callback page - handles both implicit (hash) and PKCE (query) flows
+const AUTH_CALLBACK_HTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MayaMind</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a10;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container { padding: 40px; max-width: 400px; width: 100%; }
+    .icon { font-size: 60px; margin-bottom: 20px; text-align: center; }
+    h1 { color: #f97316; margin-bottom: 16px; text-align: center; }
+    p { color: #9ca3af; line-height: 1.6; text-align: center; margin-bottom: 24px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; color: #9ca3af; font-size: 14px; margin-bottom: 6px; }
+    input[type="password"] {
+      width: 100%; padding: 14px; border: 1px solid #333;
+      border-radius: 8px; background: #1a1a2e; color: white;
+      font-size: 16px; box-sizing: border-box;
+    }
+    input:focus { outline: none; border-color: #f97316; }
+    button {
+      width: 100%; padding: 14px; background: #f97316; color: white;
+      border: none; border-radius: 8px; font-size: 16px; font-weight: 600;
+      cursor: pointer; margin-top: 8px;
+    }
+    button:hover { background: #ea580c; }
+    button:disabled { background: #666; cursor: not-allowed; }
+    .error { color: #ef4444; font-size: 14px; margin-top: 8px; text-align: center; }
+    .requirements { color: #6b7280; font-size: 12px; margin-top: 8px; }
+    .requirements li { margin: 4px 0; }
+    .loading { text-align: center; }
+    .spinner {
+      border: 3px solid #333; border-top: 3px solid #f97316;
+      border-radius: 50%; width: 40px; height: 40px;
+      animation: spin 1s linear infinite; margin: 20px auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>Processing...</p>
+    </div>
+    <div id="passwordReset" style="display: none;">
+      <div class="icon">🔐</div>
+      <h1>Reset Password</h1>
+      <p>Enter your new password below.</p>
+      <form id="resetForm">
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" id="password" required minlength="8" autocomplete="new-password" />
+        </div>
+        <div class="form-group">
+          <label>Confirm Password</label>
+          <input type="password" id="confirmPassword" required autocomplete="new-password" />
+        </div>
+        <ul class="requirements">
+          <li>At least 8 characters</li>
+          <li>One uppercase letter</li>
+          <li>One number</li>
+        </ul>
+        <button type="submit" id="submitBtn">Update Password</button>
+        <div id="message"></div>
+      </form>
+    </div>
+    <div id="emailVerified" style="display: none;">
+      <div class="icon">✓</div>
+      <h1 style="color: #22c55e;">Email Verified!</h1>
+      <p>Your email has been successfully verified.</p>
+      <p>You can now return to the <span style="color: #f97316; font-weight: 600;">MayaMind</span> app and sign in.</p>
+      <p style="margin-top: 24px; font-size: 14px;">You may close this browser tab.</p>
+    </div>
+    <div id="passwordSuccess" style="display: none;">
+      <div class="icon">✓</div>
+      <h1 style="color: #22c55e;">Password Updated!</h1>
+      <p>Your password has been successfully changed.</p>
+      <p>You can now return to the <span style="color: #f97316; font-weight: 600;">MayaMind</span> app and sign in with your new password.</p>
+      <p style="margin-top: 24px; font-size: 14px;">You may close this browser tab.</p>
+    </div>
+    <div id="errorView" style="display: none;">
+      <div class="icon">⚠️</div>
+      <h1 style="color: #ef4444;">Error</h1>
+      <p id="errorMessage">Something went wrong.</p>
+      <p>Please try again from the MayaMind app.</p>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const supabaseClient = window.supabase.createClient(
+      'https://plroxdjxliuecdfjjmyz.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBscm94ZGp4bGl1ZWNkZmpqbXl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MTIyNDEsImV4cCI6MjA4NzI4ODI0MX0.Il6D6yjKHugnZWyT71VSGoVh3RCpmFcaTtoA7WFgL9o'
+    );
+
+    const views = {
+      loading: document.getElementById('loading'),
+      passwordReset: document.getElementById('passwordReset'),
+      emailVerified: document.getElementById('emailVerified'),
+      passwordSuccess: document.getElementById('passwordSuccess'),
+      errorView: document.getElementById('errorView')
+    };
+
+    function showView(viewName, errorMsg) {
+      Object.values(views).forEach(v => v.style.display = 'none');
+      views[viewName].style.display = 'block';
+      if (errorMsg) document.getElementById('errorMessage').textContent = errorMsg;
+    }
+
+    async function init() {
+      try {
+        // Parse auth params from BOTH query string and hash fragment
+        const queryParams = new URLSearchParams(window.location.search);
+        const hashParams = window.location.hash ? new URLSearchParams(window.location.hash.substring(1)) : null;
+
+        // Get auth type and tokens from either location
+        const type = queryParams.get('type') || (hashParams && hashParams.get('type'));
+        const accessToken = hashParams && hashParams.get('access_token');
+        const refreshToken = hashParams && hashParams.get('refresh_token');
+        const code = queryParams.get('code');
+        const tokenHash = queryParams.get('token_hash');
+
+        console.log('Auth params:', { type, hasAccessToken: !!accessToken, hasCode: !!code, hasTokenHash: !!tokenHash });
+        console.log('Full URL:', window.location.href);
+
+        // Handle implicit flow (tokens in hash)
+        if (accessToken && refreshToken) {
+          console.log('Implicit flow: setting session from hash tokens');
+          const { error } = await supabaseClient.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          if (error) throw new Error('Session error: ' + error.message);
+        }
+        // Handle PKCE flow (code in query)
+        else if (code) {
+          console.log('PKCE flow: exchanging code for session');
+          const { error } = await supabaseClient.auth.exchangeCodeForSession(code);
+          if (error) throw new Error('Code exchange failed: ' + error.message);
+        }
+
+        // Verify we have a session
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        console.log('Session:', session ? 'exists' : 'none');
+
+        // Route based on auth type
+        if (type === 'recovery') {
+          if (!session) throw new Error('Reset link expired. Please request a new one.');
+          showView('passwordReset');
+        } else if (type === 'signup' || tokenHash) {
+          showView('emailVerified');
+        } else if (session) {
+          // Has session but unknown type - probably recovery
+          showView('passwordReset');
+        } else {
+          // No auth params and no session - redirect to dashboard
+          window.location.href = '/dashboard/';
+        }
+
+      } catch (err) {
+        console.error('Init error:', err);
+        showView('errorView', err.message);
+      }
+    }
+
+    // Handle password reset form
+    document.getElementById('resetForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      const messageEl = document.getElementById('message');
+      const submitBtn = document.getElementById('submitBtn');
+
+      messageEl.textContent = '';
+
+      if (password !== confirmPassword) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Passwords do not match';
+        return;
+      }
+      if (password.length < 8) {
+        messageEl.className = 'error';
+        messageEl.textContent = 'Password must be at least 8 characters';
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Updating...';
+
+      try {
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) throw error;
+
+        await supabaseClient.auth.signOut();
+        showView('passwordSuccess');
+      } catch (err) {
+        console.error('Update error:', err);
+        messageEl.className = 'error';
+        messageEl.textContent = err.message || 'Failed to update password';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Update Password';
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>
+`;
+
+// Handle Supabase auth callbacks at root
+app.get('/', (req, res, next) => {
+  const { type, code, token_hash } = req.query;
+
+  // If there are auth-related query params, serve the auth callback page
+  if (type || code || token_hash) {
+    return res.send(AUTH_CALLBACK_HTML);
+  }
+
+  // Otherwise, pass to static file handler (public/index.html)
+  // But first check if this might be an implicit flow callback (hash fragment)
+  // We can't detect hash on server, so we'll handle it client-side
+  // by redirecting to a known auth callback route
+  next();
+});
+
+// Dedicated auth callback route (handles implicit flow where hash isn't visible to server)
+app.get('/auth/callback', (req, res) => {
+  res.send(AUTH_CALLBACK_HTML);
+});
+
+// App redirect - redirects from web to native app via custom URL scheme
+// This is needed because email clients can't directly open custom URL schemes
+app.get('/app-reset', (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Reset Password - MayaMind</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: #0a0a10;
+          color: white;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+          margin: 0;
+          text-align: center;
+        }
+        .container { padding: 40px; max-width: 400px; }
+        .icon { font-size: 60px; margin-bottom: 20px; }
+        h1 { color: #f97316; margin-bottom: 16px; }
+        p { color: #9ca3af; line-height: 1.6; margin-bottom: 24px; }
+        .button {
+          display: inline-block; padding: 16px 32px;
+          background: #f97316; color: white; text-decoration: none;
+          border-radius: 12px; font-weight: 600; font-size: 18px;
+          -webkit-tap-highlight-color: transparent;
+        }
+        .button:active { background: #ea580c; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="icon">🔐</div>
+        <h1>Reset Your Password</h1>
+        <p>Tap the button below to open MayaMind and set your new password.</p>
+        <a id="openApp" class="button" href="#">Open MayaMind App</a>
+      </div>
+      <script>
+        // Build the app URL with the hash fragment
+        const appUrl = 'mayamind://auth/callback' + window.location.hash;
+        console.log('App URL:', appUrl);
+
+        // Set the href directly - Safari requires this for custom URL schemes
+        const button = document.getElementById('openApp');
+        button.href = appUrl;
+
+        // Also handle click event as backup
+        button.addEventListener('click', function(e) {
+          // Try iframe method (works on some iOS versions)
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          iframe.src = appUrl;
+          document.body.appendChild(iframe);
+
+          // Also try location change after small delay
+          setTimeout(function() {
+            window.location.href = appUrl;
+          }, 100);
+        });
+      </script>
+    </body>
+    </html>
+  `);
+});
+
 // Serve frontend from public/
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -1298,6 +1608,139 @@ function handleDeepgram(clientWs) {
   clientWs.on('error', (err) => console.error('[Client] WS error:', err.message));
 }
 
+// ── Auth: 2FA Code Delivery ───────────────────────────────────────────────────
+
+// Resend client for email delivery
+let resendClient = null;
+if (process.env.RESEND_API_KEY) {
+  const { Resend } = require('resend');
+  resendClient = new Resend(process.env.RESEND_API_KEY);
+  console.log('[Resend] Email client initialized');
+}
+
+// POST /api/auth/send-2fa — Send 2FA code via email or SMS
+app.post('/api/auth/send-2fa', async (req, res) => {
+  const { method, destination, code, userName } = req.body;
+
+  if (!method || !destination || !code) {
+    return res.status(400).json({ error: 'Missing required fields: method, destination, code' });
+  }
+
+  try {
+    if (method === 'email') {
+      // Send via Resend
+      if (!resendClient) {
+        return res.status(500).json({ error: 'Email service not configured' });
+      }
+
+      const { error } = await resendClient.emails.send({
+        from: 'MayaMind <noreply@mayamind.ai>',
+        to: destination,
+        subject: 'Your MayaMind Verification Code',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #FF8C00; margin-bottom: 20px;">MayaMind</h1>
+            <p>Hi ${userName || 'there'},</p>
+            <p>Your verification code is:</p>
+            <div style="background: #f5f5f5; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0;">
+              <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #333;">${code}</span>
+            </div>
+            <p>This code will expire in 10 minutes.</p>
+            <p style="color: #888; font-size: 14px;">If you didn't request this code, you can safely ignore this email.</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+            <p style="color: #888; font-size: 12px;">MayaMind - Your AI Wellness Companion</p>
+          </div>
+        `,
+      });
+
+      if (error) {
+        console.error('[Auth] Resend error:', error);
+        return res.status(500).json({ error: 'Failed to send email' });
+      }
+
+      console.log(`[Auth] 2FA code sent via email to ${destination}`);
+      res.json({ success: true, method: 'email' });
+
+    } else if (method === 'sms') {
+      // Send via Twilio
+      if (!twilioClient) {
+        return res.status(500).json({ error: 'SMS service not configured' });
+      }
+
+      await twilioClient.messages.create({
+        body: `Your MayaMind verification code is: ${code}. This code expires in 10 minutes.`,
+        from: process.env.TWILIO_WHATSAPP_NUMBER?.replace('whatsapp:', '') || process.env.TWILIO_PHONE_NUMBER,
+        to: destination,
+      });
+
+      console.log(`[Auth] 2FA code sent via SMS to ${destination}`);
+      res.json({ success: true, method: 'sms' });
+
+    } else {
+      res.status(400).json({ error: 'Invalid method. Use "email" or "sms".' });
+    }
+  } catch (err) {
+    console.error('[Auth] Error sending 2FA code:', err);
+    res.status(500).json({ error: 'Failed to send verification code' });
+  }
+});
+
+// ── Auth Callback (email verification redirect) ──────────────────────────────
+app.get('/auth/callback', (req, res) => {
+  // Supabase redirects here after email verification
+  // Show a success page that tells user to return to the app
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Email Verified - MayaMind</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: #0a0a10;
+          color: white;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+          margin: 0;
+          text-align: center;
+        }
+        .container {
+          padding: 40px;
+          max-width: 400px;
+        }
+        .icon {
+          font-size: 80px;
+          margin-bottom: 20px;
+        }
+        h1 {
+          color: #22c55e;
+          margin-bottom: 16px;
+        }
+        p {
+          color: #9ca3af;
+          line-height: 1.6;
+        }
+        .highlight {
+          color: #f97316;
+          font-weight: 600;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="icon">✓</div>
+        <h1>Email Verified!</h1>
+        <p>Your email has been successfully verified.</p>
+        <p>You can now return to the <span class="highlight">MayaMind</span> app and sign in with your email and password.</p>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3000', 10);
 server.listen(PORT, async () => {
@@ -1308,6 +1751,7 @@ server.listen(PORT, async () => {
   console.log(`  Voice:  ${process.env.ELEVENLABS_VOICE_ID}`);
   console.log(`  Twilio: ${twilioClient ? 'configured' : 'not configured (Connect section disabled)'}`);
   console.log(`  Withings: ${withingsConfigured ? 'configured' : 'not configured (body composition disabled)'}`);
+  console.log(`  Resend: ${resendClient ? 'configured' : 'not configured (email 2FA disabled)'}`);
   console.log(`  Health test: http://localhost:${PORT}/api/health/test`);
   if (process.env.NGROK_URL) console.log(`  ngrok:  ${process.env.NGROK_URL}`);
   await verifyDeepgramKey();

@@ -177,6 +177,20 @@ struct SettingsView: View {
                                 isConnected: false
                             )
                         }
+
+                        // Account
+                        SettingsSection(title: "Account") {
+                            Button(action: { viewModel.logout() }) {
+                                SettingsRow(
+                                    icon: "rectangle.portrait.and.arrow.right",
+                                    title: "Sign Out",
+                                    subtitle: viewModel.userEmail,
+                                    isConnected: false,
+                                    showChevron: false,
+                                    isDestructive: true
+                                )
+                            }
+                        }
                     }
                     .padding()
                 }
@@ -346,10 +360,21 @@ class SettingsViewModel: ObservableObject {
         }
     }
 
+    // User email for display
+    var userEmail: String {
+        AuthService.shared.userProfile?.email ?? "Not signed in"
+    }
+
     init() {
         // Load notification settings from UserDefaults
         self.notificationJingleEnabled = NotificationSettings.shared.jingleEnabled
         self.notificationBannerEnabled = NotificationSettings.shared.bannerEnabled
+    }
+
+    func logout() {
+        Task {
+            await AuthService.shared.logout()
+        }
     }
 
     func connectWithings() {

@@ -13,11 +13,22 @@ import UserNotifications
 struct MayaMindApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appState = AppState()
+    @StateObject private var deepLinkHandler = DeepLinkHandler()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(deepLinkHandler)
+                .onOpenURL { url in
+                    Task {
+                        await deepLinkHandler.handleURL(url)
+                    }
+                }
+                .sheet(isPresented: $deepLinkHandler.showPasswordReset) {
+                    PasswordResetView()
+                        .environmentObject(deepLinkHandler)
+                }
         }
     }
 }
@@ -84,6 +95,61 @@ enum AppSection: String, CaseIterable {
         case .health: return "heart.fill"
         case .connect: return "message.fill"
         case .todos: return "checklist"
+        }
+    }
+}
+
+// MARK: - Deep Link Handler
+
+@MainActor
+class DeepLinkHandler: ObservableObject {
+    @Published var showPasswordReset = false
+    @Published var showEmailVerified = false
+    @Published var error: String?
+
+    func handleURL(_ url: URL) async {
+        print("[DeepLink] Received URL: \(url)")
+
+        // Parse the URL fragment (after #)
+        // URL format: mayamind://auth/callback#access_token=xxx&refresh_token=xxx&type=recovery
+        guard let fragment = url.fragment else {
+            print("[DeepLink] No fragment in URL")
+            return
+        }
+
+        // Parse fragment as query parameters
+        var params: [String: String] = [:]
+        for pair in fragment.components(separatedBy: "&") {
+            let parts = pair.components(separatedBy: "=")
+            if parts.count == 2 {
+                params[parts[0]] = parts[1].removingPercentEncoding ?? parts[1]
+            }
+        }
+
+        print("[DeepLink] Params: \(params.keys.joined(separator: ", "))")
+
+        guard let accessToken = params["access_token"],
+              let refreshToken = params["refresh_token"] else {
+            print("[DeepLink] Missing tokens")
+            error = "Invalid reset link"
+            return
+        }
+
+        let type = params["type"]
+
+        // Set the session in Supabase
+        do {
+            try await AuthService.shared.setSession(accessToken: accessToken, refreshToken: refreshToken)
+            print("[DeepLink] Session established")
+
+            if type == "recovery" {
+                showPasswordReset = true
+            } else if type == "signup" {
+                showEmailVerified = true
+            }
+        } catch {
+            print("[DeepLink] Failed to set session: \(error)")
+            self.error = "Failed to process reset link"
         }
     }
 }

@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A3605CDAEB6FFC85A4224714 /* Pods_MayaMind.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CFF51EA97ABD4A6E460FDADC /* Pods_MayaMind.framework */; };
+		C68198CD2F637B2900E11C45 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = C68198CC2F637B2900E11C45 /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C68198CD2F637B2900E11C45 /* Supabase in Frameworks */,
 				A3605CDAEB6FFC85A4224714 /* Pods_MayaMind.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -133,6 +135,9 @@
 			);
 			mainGroup = C67A71B12F5BB3B4009980BB;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C68198CB2F636C5500E11C45 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C67A71BB2F5BB3B4009980BB /* Products */;
 			projectDirPath = "";
@@ -394,6 +399,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C68198CB2F636C5500E11C45 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C68198CC2F637B2900E11C45 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C68198CB2F636C5500E11C45 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C67A71B22F5BB3B4009980BB /* Project object */;
 }

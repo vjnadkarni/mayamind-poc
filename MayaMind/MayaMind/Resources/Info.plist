@@ -97,5 +97,18 @@
         <key>UIApplicationSupportsMultipleScenes</key>
         <false/>
     </dict>
+
+    <!-- URL Schemes for Deep Linking -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.mayamind.app</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>mayamind</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
